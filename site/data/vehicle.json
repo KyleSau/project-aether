@@ -1,0 +1,166 @@
+{
+  "schema": "aether-vehicle/1",
+  "name": "AETHER-M2 (generic two-stage medium-lift vehicle)",
+  "disclaimer": "Generic vehicle inspired by modern two-stage kerosene/LOX orbital launchers. All numbers are ASSUMPTIONS chosen within publicly reported ranges for this vehicle class; it is not a replica of any specific vehicle.",
+  "site": {
+    "latitude_deg": 28.5,
+    "longitude_deg": 0.0,
+    "pad_altitude_m": 0.0,
+    "launch_azimuth_deg": 90.0,
+    "rotating_earth": true,
+    "j2": true
+  },
+  "geometry": {
+    "_note": "Body x-axis measured from stage-1 nozzle exit plane toward the nose.",
+    "radius_m": 1.85,
+    "reference_area_m2": 10.752,
+    "length_m": 70.0,
+    "stage1": {
+      "x0": 0.0,
+      "x1": 45.0,
+      "tank_x0": 3.0,
+      "tank_x1": 40.0
+    },
+    "stage2": {
+      "x0": 45.0,
+      "x1": 58.0,
+      "tank_x0": 46.5,
+      "tank_x1": 56.5
+    },
+    "payload": {
+      "x0": 59.0,
+      "x1": 66.0,
+      "radius_m": 1.6
+    },
+    "fairing": {
+      "x0": 58.0,
+      "x1": 70.0,
+      "radius_m": 2.6
+    }
+  },
+  "mass": {
+    "stage1_dry_kg": 25600.0,
+    "stage1_prop_kg": 395700.0,
+    "stage2_dry_kg": 4000.0,
+    "stage2_prop_kg": 92670.0,
+    "payload_kg": 15000.0,
+    "fairing_kg": 1900.0
+  },
+  "engines": {
+    "_note": "Per-engine values. F = thr*mdot0*ve + (thr*pe0 - pa)*Ae. Values are assumptions consistent with the Cantera-derived performance in data/thermo.json scaled by efficiency factors (see docs/AETHER.md).",
+    "stage1": {
+      "count": 9,
+      "propellants": "LOX/RP-1",
+      "mdot0_kg_s": 298.0,
+      "ve_m_s": 2863.2,
+      "pe_pa": 70000.0,
+      "ae_m2": 0.8364,
+      "throttle_min": 0.4,
+      "gimbal_max_deg": 5.0,
+      "x_gimbal": 2.5,
+      "startup_s": 3.0,
+      "chamber_pressure_pa": 9700000.0,
+      "gamma_exit": 1.22,
+      "nozzle_lip_angle_deg": 10.0
+    },
+    "stage2": {
+      "count": 1,
+      "propellants": "LOX/RP-1",
+      "mdot0_kg_s": 287.0,
+      "ve_m_s": 3310.1,
+      "pe_pa": 6000.0,
+      "ae_m2": 4.909,
+      "throttle_min": 0.4,
+      "gimbal_max_deg": 5.0,
+      "x_gimbal": 47.0,
+      "startup_s": 1.0,
+      "chamber_pressure_pa": 9700000.0,
+      "gamma_exit": 1.22,
+      "nozzle_lip_angle_deg": 8.0
+    }
+  },
+  "aero": {
+    "_source": "Representative zero-lift axial-force coefficient curve for a slender launch vehicle (shape follows published wind-tunnel/flight data trends for slender bodies: subsonic ~0.3, transonic rise to ~0.6 near M=1.1-1.2, supersonic decay). ASSUMPTION, not vehicle-specific data.",
+    "ca_mach": [
+      0.0,
+      0.5,
+      0.8,
+      0.9,
+      0.95,
+      1.05,
+      1.15,
+      1.3,
+      1.5,
+      2.0,
+      2.5,
+      3.0,
+      4.0,
+      5.0,
+      7.0,
+      10.0,
+      25.0
+    ],
+    "ca_value": [
+      0.3,
+      0.28,
+      0.32,
+      0.38,
+      0.45,
+      0.56,
+      0.6,
+      0.58,
+      0.53,
+      0.45,
+      0.4,
+      0.36,
+      0.31,
+      0.28,
+      0.26,
+      0.25,
+      0.25
+    ],
+    "cn_alpha_per_rad": 2.0,
+    "x_cp_m": 52.0
+  },
+  "wind": {
+    "_note": "Assumed eastward wind profile (jet-stream-like peak near 12 km).",
+    "alt_m": [
+      0,
+      1000,
+      5000,
+      12000,
+      20000,
+      30000,
+      50000
+    ],
+    "speed_m_s": [
+      0,
+      8,
+      15,
+      35,
+      15,
+      5,
+      0
+    ]
+  },
+  "guidance": {
+    "t_vertical_s": 7.0,
+    "kick_duration_s": 10.0,
+    "kick_angle_deg": 6.5,
+    "blend_s": 10.0,
+    "q_limit_pa": 30000.0,
+    "q_band_pa": 6000.0,
+    "g_limit": 4.5,
+    "attitude_wn": 1.2,
+    "attitude_zeta": 0.8,
+    "rcs_alpha_max": 0.05,
+    "sep_delay_s": 3.0,
+    "ses_delay_s": 5.0,
+    "fairing_alt_m": 110000.0,
+    "target_alt_m": 200000.0,
+    "s2_wn": 0.03,
+    "s2_zeta": 1.0,
+    "s2_sin_min": -0.35,
+    "s2_sin_max": 0.85
+  }
+}

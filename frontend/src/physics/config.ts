@@ -10,6 +10,9 @@ export interface EngineCfg {
   gimbal_max_deg: number;
   x_gimbal: number;
   startup_s: number;
+  chamber_pressure_pa?: number;
+  gamma_exit?: number;
+  nozzle_lip_angle_deg?: number;
 }
 
 export interface VehicleConfig {
