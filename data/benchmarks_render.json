@@ -1,0 +1,14 @@
+{
+ "schema": "aether-bench-render/1",
+ "date": "2026-10-17",
+ "machine": "Windows 11, Intel i7-14700KF, NVIDIA RTX 4070 Ti, Chrome 155 (desktop), window 1084x815 CSS px, devicePixelRatio 1",
+ "method": "Production build served by backend (uvicorn) on localhost:8300. In-app Engine.benchmark(seconds): records requestAnimationFrame intervals and the JS time spent inside each frame (cpuFrameMs; excludes GPU execution). Scenario: Launch, wait until T+3 s (pad camera, peak smoke/plume/particle emission at lift-off), then sample 6-8 s. Frame rate is capped by display vsync (~131 Hz on this monitor), so 'fps at cap' means GPU/CPU headroom remains. GPU memory is an estimate (particle buffers + render targets), not a driver measurement. JS heap = performance.memory.usedJSHeapSize.",
+ "runs": [
+  {"name": "WebGPU default (auto tier=high, 48k compute particles, MSAA 4, shadows 4096)", "url": "/", "fps": 131.4, "meanFrameMs": 7.61, "p95FrameMs": 8.1, "p99FrameMs": 8.5, "cpuFrameMs": 1.44, "drawCalls": 180, "triangles": 467333, "particles": 48000, "renderTarget": "1084x815", "jsHeapMB": 213.3, "gpuMemEstimateMB": 54.9},
+  {"name": "WebGPU ultra + pixelRatio 2 (120k compute particles, 2168x1630)", "url": "/?quality=ultra&pr=2", "fps": 124.0, "meanFrameMs": 8.07, "p95FrameMs": 11.8, "p99FrameMs": 14.5, "cpuFrameMs": 1.45, "drawCalls": 193, "triangles": 621585, "particles": 120000, "renderTarget": "2168x1630", "jsHeapMB": 145.1, "gpuMemEstimateMB": 213.2},
+  {"name": "WebGL2 backend, auto tier=medium (16k analytic particles)", "url": "/?renderer=webgl", "fps": 131.6, "meanFrameMs": 7.60, "p95FrameMs": 8.2, "p99FrameMs": 8.6, "cpuFrameMs": 0.88, "drawCalls": 119, "triangles": 374573, "particles": 16000, "renderTarget": "1084x815", "jsHeapMB": 148.5, "gpuMemEstimateMB": 21.2},
+  {"name": "WebGL2 backend, high + pixelRatio 2 (48k analytic particles, 2168x1630)", "url": "/?renderer=webgl&quality=high&pr=2", "fps": 116.5, "meanFrameMs": 8.58, "p95FrameMs": 14.8, "p99FrameMs": 17.8, "cpuFrameMs": 1.35, "drawCalls": 193, "triangles": 476519, "particles": 48000, "renderTarget": "2168x1630", "jsHeapMB": 211.2, "gpuMemEstimateMB": 205.1},
+  {"name": "Phone-equivalent settings on desktop (tier=low, 6k particles, no MSAA)", "url": "/?quality=low", "fps": 131.5, "meanFrameMs": 7.60, "p95FrameMs": 8.1, "p99FrameMs": 8.5, "cpuFrameMs": 0.96, "drawCalls": 119, "triangles": 275455, "particles": 6000, "renderTarget": "1084x815", "jsHeapMB": 67.0, "gpuMemEstimateMB": 20.8}
+ ],
+ "not_measured": "No physical phone was available; phone performance is untested. Motion blur (?mblur=1) was not benchmarked (disabled by default because the velocity MRT smeared transparent sprites)."
+}

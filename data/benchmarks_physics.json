@@ -1,0 +1,31 @@
+{
+ "schema": "aether-bench-physics/1",
+ "date": "2026-10-17T18:10:46.159Z",
+ "node": "v22.22.0",
+ "cpu": "Intel(R) Core(TM) i7-14700KF",
+ "method": "full pad-to-orbit mission (t=-3..760s, RK4 h=0.02 s, ~38152 steps incl. event refinement), median of 7 runs after warm-up",
+ "ts_full": {
+  "medianMs": 66.6733999999999,
+  "steps": 38152,
+  "stepsPerSec": 572222.2055572396
+ },
+ "wasm_full": {
+  "medianMs": 44.635299999999916,
+  "steps": 38152,
+  "stepsPerSec": 854749.4919940064
+ },
+ "ts_loop_wasm_rk4": {
+  "medianMs": 62.13270000000011,
+  "steps": 38152,
+  "stepsPerSec": 614040.593761416
+ },
+ "ts_evaluate_per_sec": 3495403.5443391893,
+ "speedup_wasm_full_vs_ts": 1.493737019802713,
+ "speedup_hybrid_vs_ts": 1.073080680543414,
+ "accuracy": {
+  "ts_final_pos_err_vs_python_m": 0.841557528985154,
+  "wasm_final_pos_err_vs_python_m": 0.8415575285846546,
+  "wasm_vs_ts_final_pos_diff_m": 3.754281321679498e-9
+ },
+ "realtime_budget": "At 50x time warp the sim needs 50/0.02 = 2500 RK4 steps per second; TS delivers 229x that."
+}
