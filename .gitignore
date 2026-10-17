@@ -7,3 +7,5 @@ __pycache__/
 target/
 *.sqlite
 
+wasm/pkg/
+frontend/public/data/

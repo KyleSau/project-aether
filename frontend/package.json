@@ -1,0 +1,28 @@
+{
+  "name": "aether-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "sync-data": "node scripts/sync-data.mjs",
+    "dev": "npm run sync-data && vite --port 5280 --strictPort",
+    "build": "npm run sync-data && tsc -b && vite build",
+    "build:site": "npm run sync-data && tsc -b && vite build --mode site && node scripts/post-site.mjs",
+    "test": "vitest run",
+    "bench": "node --experimental-strip-types scripts/bench-physics.ts"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "@types/three": "0.185.4",
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
+  }
+}
