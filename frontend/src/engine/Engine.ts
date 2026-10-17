@@ -15,10 +15,14 @@ import { Launchpad, GROUND_Y } from './scene/Launchpad';
 import { Earth } from './scene/Earth';
 import { SkyModel, R_GROUND_KM } from './scene/Sky';
 import { Effects } from './Effects';
+import { Clouds } from './scene/Clouds';
+import { Condensation } from './scene/Condensation';
+import { LaunchAudio } from './Audio';
+import { AnalyticParticles, ComputeParticles } from './scene/Particles';
 import { AutoScaler, detectTier, makeSettings, type QualitySettings } from './quality';
 import type { Stepper } from '../physics/sim';
 
-export type TimeOfDay = 'day' | 'dusk' | 'night';
+export type TimeOfDay = 'day' | 'dawn' | 'night';
 
 export interface EngineInfo {
   backend: string;
@@ -27,6 +31,8 @@ export interface EngineInfo {
   fps: number;
   frameMs: number;
   particles: number;
+  particleMode: string;
+  motionBlur?: boolean;
   drawCalls: number;
   triangles: number;
   pixelRatio: number;
@@ -42,7 +48,7 @@ export class Engine {
   rig = new CameraRig();
   frames: Frames;
   q!: QualitySettings;
-  info: EngineInfo = { backend: '?', tier: '?', physics: 'TS', fps: 0, frameMs: 0, particles: 0, drawCalls: 0, triangles: 0, pixelRatio: 1 };
+  info: EngineInfo = { backend: '?', tier: '?', physics: 'TS', fps: 0, frameMs: 0, particles: 0, particleMode: '', drawCalls: 0, triangles: 0, pixelRatio: 1 };
   rocket!: RocketModel;
   pad!: Launchpad;
   earth!: Earth;
@@ -66,11 +72,15 @@ export class Engine {
   private orbitTimer = 0;
   private lastSepCount = 0;
   private eyeAdapt = 1;
-  timeOfDay: TimeOfDay = 'dusk';
+  timeOfDay: TimeOfDay = 'dawn';
+  mblurAmount = uniform(0.5);
   engineering = false;
   onFrame?: () => void;
   private shakeT = 0;
   overlays!: import('./Overlays').Overlays;
+  clouds!: Clouds;
+  vapor!: Condensation;
+  audio = new LaunchAudio();
 
   constructor(private canvas: HTMLCanvasElement, public cfg: VehicleConfig, makeStepper: (c: VehicleConfig) => Stepper | undefined, physicsLabel: string) {
     this.mission = new MissionController(cfg, makeStepper);
@@ -86,9 +96,11 @@ export class Engine {
     const backend = (this.renderer.backend as unknown as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2';
     this.info.backend = backend;
     this.q = makeSettings(detectTier(backend === 'WebGPU'));
+    const prOverride = parseFloat(params.get('pr') ?? '');
+    if (prOverride > 0) { this.q.pixelRatio = prOverride; this.scaler.enabled = false; }
     this.info.tier = this.q.tier;
     this.renderer.setPixelRatio(this.q.pixelRatio);
-    this.renderer.toneMapping = THREE.AgXToneMapping;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = this.q.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -116,9 +128,17 @@ export class Engine {
     this.place(this.pad.group, [0, 0, 0]);
     this.rocket = new RocketModel(this.cfg, this.q.towerDetail);
     this.scene.add(this.rocket.s1, this.rocket.s2, this.rocket.fairL, this.rocket.fairR);
-    this.fx = new Effects(this.cfg, this.q.maxParticles, this.rocket.s1, this.rocket.s2, this.rocket.s1EnginePositions, this.rocket.s2NozzleExitY);
+    const useCompute = backend === 'WebGPU' && params.get('particles') !== 'analytic';
+    const parts = useCompute ? new ComputeParticles(this.q.maxParticles) : new AnalyticParticles(this.q.maxParticles);
+    this.info.particleMode = parts.kind;
+    this.fx = new Effects(this.cfg, parts, this.rocket.s1, this.rocket.s2, this.rocket.s1EnginePositions, this.rocket.s2NozzleExitY);
     this.scene.add(this.fx.particles.sprite);
     this.place(this.fx.particles.sprite, [0, 0, 0]);
+    this.clouds = new Clouds(this.q.cloudCount);
+    this.scene.add(this.clouds.sprite);
+    this.place(this.clouds.sprite, [0, 0, 0]);
+    this.vapor = new Condensation();
+    this.rocket.s2.add(this.vapor.mesh);
     this.fx.engineLight.castShadow = this.q.engineLightShadows;
     this.fx.engineLight.shadow.mapSize.set(512, 512);
     this.scene.add(this.fx.engineLight);
@@ -150,9 +170,19 @@ export class Engine {
     // ---------- post-processing ----------
     this.pipeline = new THREE.RenderPipeline(this.renderer);
     const scenePass = pass(this.scene, this.camera, { samples: this.q.msaa } as never);
-    const col = scenePass.getTextureNode('output');
+    let col = scenePass.getTextureNode('output');
+    if (this.q.motionBlur && params.get('mblur') === '1') {
+      try {
+        const T = (await import('./tsl')).default;
+        const { motionBlur } = await import('three/examples/jsm/tsl/display/MotionBlur.js');
+        scenePass.setMRT(T.mrt({ output: T.output, velocity: T.velocity }));
+        const vel = scenePass.getTextureNode('velocity');
+        col = motionBlur(col, vel.mul(this.mblurAmount), T.int(8)) as never;
+        this.info.motionBlur = true;
+      } catch (e) { console.warn('motion blur unavailable', e); }
+    }
     if (this.q.bloom) {
-      this.bloomNode = bloom(col, 0.55, 0.45, 0.82);
+      this.bloomNode = bloom(col, 0.7, 0.55, 0.9);
       this.pipeline.outputNode = col.add(this.bloomNode).mul(this.exposure) as never;
     } else this.pipeline.outputNode = col.mul(this.exposure) as never;
 
@@ -169,14 +199,15 @@ export class Engine {
 
   setTimeOfDay(tod: TimeOfDay) {
     this.timeOfDay = tod;
-    const elev = tod === 'day' ? 38 : tod === 'dusk' ? 5 : -14;
-    const az = tod === 'day' ? 140 : 255; // degrees from north, clockwise
+    const elev = tod === 'day' ? 38 : tod === 'dawn' ? 6 : -14;
+    const az = tod === 'day' ? 140 : tod === 'dawn' ? 100 : 255; // degrees from north, clockwise (dawn: sun rising in the east, downrange)
     const e = (elev * Math.PI) / 180, a = (az * Math.PI) / 180;
     // render frame: x east, y up, z south
     const dir = new THREE.Vector3(Math.cos(e) * Math.sin(a), Math.sin(e), -Math.cos(e) * Math.cos(a)).normalize();
     this.sky.uSunDir.value.copy(dir);
     this.earth.uSunDir.value.copy(dir);
     this.fx.particles.uSunDir.value.copy(dir);
+    this.clouds.uSunDir.value.copy(dir);
     const day = THREE.MathUtils.smoothstep(Math.sin(e), -0.1, 0.2);
     const warm = Math.exp(-Math.max(Math.sin(e), 0.02) * 8);
     const sunCol = new THREE.Color(1, 0.93 - 0.35 * warm, 0.85 - 0.6 * warm);
@@ -186,9 +217,11 @@ export class Engine {
     this.hemi.color.set(day > 0.5 ? 0x9ab8ff : 0x3a4a78);
     this.fx.particles.uSunColor.value.copy(sunCol).multiplyScalar(day * 1.2);
     this.fx.particles.uAmbient.value.set(0.22, 0.27, 0.36).multiplyScalar(0.12 + 0.88 * day);
+    this.clouds.uSunColor.value.copy(sunCol).multiplyScalar(day * 1.1 + 0.02);
+    this.clouds.uAmbient.value.set(0.35, 0.42, 0.55).multiplyScalar(0.08 + 0.92 * day);
     this.sky.uFogColor.value.copy(SkyModel.horizonColor(e));
-    this.pad.lightsOn.value = tod === 'night' ? 1 : tod === 'dusk' ? 0.6 : 0;
-    for (const f of this.floods) f.intensity = tod === 'night' ? 6e5 : tod === 'dusk' ? 2e5 : 0;
+    this.pad.lightsOn.value = tod === 'night' ? 1 : tod === 'dawn' ? 0.6 : 0;
+    for (const f of this.floods) f.intensity = tod === 'night' ? 4e4 : tod === 'dawn' ? 8e3 : 0;
     this.earth.uSunI.value = 1;
     this.scene.environment = makeEnvironment(dir, sunCol, day);
     this.scene.environmentIntensity = 0.6;
@@ -237,6 +270,11 @@ export class Engine {
     }, { passive: false });
   }
 
+  launch() {
+    this.audio.start();
+    this.mission.launch();
+  }
+
   setCamera(m: CamMode) {
     this.rig.setMode(m);
     if (m === 'free') { this.rig.dist = this.mission.view.phase >= 3 ? 60 : 140; }
@@ -251,8 +289,37 @@ export class Engine {
   }
 
   // ---------------------------------------------------------------- per frame
+  private bench: { dts: number[]; cpu: number[]; until: number; resolve: (v: unknown) => void } | null = null;
+  /** Measure frame statistics for `seconds` (used by the benchmark procedure in docs/AETHER.md). */
+  benchmark(seconds: number): Promise<unknown> {
+    return new Promise((resolve) => { this.bench = { dts: [], cpu: [], until: performance.now() + seconds * 1000, resolve }; });
+  }
+  private finishBench() {
+    const b = this.bench!;
+    this.bench = null;
+    const sorted = [...b.dts].sort((x, y) => x - y);
+    const mean = b.dts.reduce((a, c) => a + c, 0) / b.dts.length;
+    const cpuMean = b.cpu.reduce((a, c) => a + c, 0) / b.cpu.length;
+    const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+    const ri = this.renderer.info as unknown as { memory?: { geometries?: number; textures?: number } };
+    // GPU memory estimate: particle buffers + colour/depth targets (approximate, see docs)
+    const w = this.renderer.domElement.width, h = this.renderer.domElement.height;
+    const particleBytes = this.fx.particles.capacity * 16 * (this.info.particleMode.startsWith('WebGPU') ? 6 : 4);
+    const targets = w * h * (8 /*rgba16f*/ + 4 /*depth*/) * Math.max(1, this.q.msaa) + w * h * 8 * 1.5 /*bloom chain*/;
+    b.resolve({
+      ...this.info, frames: b.dts.length, meanFrameMs: mean, fps: 1000 / mean, p95FrameMs: sorted[Math.floor(sorted.length * 0.95)],
+      p99FrameMs: sorted[Math.floor(sorted.length * 0.99)], cpuFrameMs: cpuMean, width: w, height: h,
+      jsHeapMB: mem ? mem.usedJSHeapSize / 1048576 : null, geometries: ri.memory?.geometries, textures: ri.memory?.textures,
+      gpuMemEstimateMB: (particleBytes + targets) / 1048576,
+    });
+  }
+
   private frame() {
     const now = performance.now();
+    if (this.bench) {
+      this.bench.dts.push(now - this.last);
+      if (now > this.bench.until) this.finishBench();
+    }
     const dtReal = Math.min((now - this.last) / 1000, 0.1);
     const frameMs = now - this.last;
     this.last = now;
@@ -319,6 +386,9 @@ export class Engine {
     this.rocket.s1Glow.value = s1Burning ? tel.throttle : Math.max(0, (this.rocket.s1Glow.value as number) - dtReal * 0.2);
     this.rocket.s2Glow.value = s2Burning ? tel.throttle : Math.max(0, (this.rocket.s2Glow.value as number) - dtReal * 0.1);
     this.pad.update(dtReal * (M.paused ? 0 : M.warp), M.state !== 'idle');
+    this.vapor.update(tel.mach, tel.h, tel.qbar);
+    this.vapor.mesh.visible = this.vapor.mesh.visible && v.phase <= S2_BURN;
+    this.audio.update(this.fx.acoustic, this.fx.nearField, M.paused);
 
     // camera
     const out = this.rig.update({
@@ -391,12 +461,14 @@ export class Engine {
     this.eyeAdapt += (target - this.eyeAdapt) * (1 - Math.exp(-dtReal * 1.5));
     this.exposure.value = this.eyeAdapt;
 
+    this.fx.particles.step(this.renderer, Math.max(0, Math.min(dtMission, 5)));
     this.pipeline.render();
     const ri = this.renderer.info.render as unknown as { drawCalls?: number; calls?: number; triangles?: number };
     this.info.drawCalls = ri.drawCalls ?? ri.calls ?? 0;
     this.info.triangles = ri.triangles ?? 0;
     this.info.particles = this.fx.particles.capacity;
     this.onFrame?.();
+    if (this.bench) this.bench.cpu.push(performance.now() - now);
   }
 
   private setPose(g: THREE.Object3D, pos: V3, q: THREE.Quaternion) {

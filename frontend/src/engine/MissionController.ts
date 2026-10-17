@@ -139,19 +139,23 @@ export class MissionController {
     if (this.fairingL && tNow < this.fairingL.t - 0.5) this.fairingL = this.fairingR = null;
     if (sim.sepState && !this.s1) {
       this.s1 = { y: sim.sepState.slice(0, 13), t: sim.ctx.t_sep, active: true };
-      // tip-off: small residual rate (artistic assumption)
-      this.s1.y[11] += 0.0; this.s1.y[12] += -0.02;
+      // separation push (assumed 1.2 m/s relative, along -body x) + small tip-off rate (artistic assumption)
+      const y = this.s1.y;
+      const [w, x, yy, z] = [y[6], y[7], y[8], y[9]];
+      const bx = [1 - 2 * (yy * yy + z * z), 2 * (x * yy + w * z), 2 * (x * z - w * yy)];
+      for (let i = 0; i < 3; i++) y[3 + i] -= 1.2 * bx[i];
+      y[12] += -0.015;
     }
     if (sim.fairingState && !this.fairingL) {
       const ev = sim.events.find((e) => e.name === 'FAIRING_SEP');
       const mk = (sign: number): Debris => {
         const y = sim.fairingState!.slice(0, 13);
-        // separation push: 3 m/s outward along body z (spring/pneumatic, assumed)
+        // separation push: 3 m/s outward along body y (halves split in the body x-y plane; assumed)
         const q = [y[6], y[7], y[8], y[9]];
         const [w, x, yy, z] = q;
-        const bz = [2 * (x * z + w * yy), 2 * (yy * z - w * x), 1 - 2 * (x * x + yy * yy)];
-        for (let i = 0; i < 3; i++) y[3 + i] += sign * 3.0 * bz[i];
-        y[10] = 0; y[11] = sign * 0.35; y[12] = 0;
+        const by = [2 * (x * yy - w * z), 1 - 2 * (x * x + z * z), 2 * (yy * z + w * x)];
+        for (let i = 0; i < 3; i++) y[3 + i] += sign * 3.0 * by[i];
+        y[10] = 0; y[11] = 0; y[12] = sign * 0.35;
         return { y, t: ev ? ev.t : tNow, active: true };
       };
       this.fairingL = mk(1);

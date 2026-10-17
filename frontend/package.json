@@ -9,7 +9,7 @@
     "build": "npm run sync-data && tsc -b && vite build",
     "build:site": "npm run sync-data && tsc -b && vite build --mode site && node scripts/post-site.mjs",
     "test": "vitest run",
-    "bench": "node --experimental-strip-types scripts/bench-physics.ts"
+    "bench": "vitest run --config vitest.bench.config.ts --silent=false"
   },
   "dependencies": {
     "react": "19.2.8",

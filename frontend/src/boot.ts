@@ -2,8 +2,8 @@ import type { VehicleConfig } from './physics/config';
 import type { Stepper } from './physics/sim';
 import { Engine } from './engine/Engine';
 
-export interface ExtraData { thermo: unknown | null; plumeTable: unknown | null; reference: unknown | null; benchmarks: unknown | null }
-export const extra: ExtraData = { thermo: null, plumeTable: null, reference: null, benchmarks: null };
+export interface ExtraData { thermo: unknown | null; plumeTable: unknown | null; reference: unknown | null; benchmarks: unknown | null; thermal: unknown | null }
+export const extra: ExtraData = { thermo: null, plumeTable: null, reference: null, benchmarks: null, thermal: null };
 
 async function getJson(path: string) {
   try {
@@ -38,10 +38,11 @@ async function makeStepperFactory(): Promise<{ make: (c: VehicleConfig) => Stepp
 export async function boot(canvas: HTMLCanvasElement): Promise<Engine> {
   const cfg: VehicleConfig = await getJson('./data/vehicle.json');
   if (!cfg) throw new Error('could not load data/vehicle.json');
-  const [thermo, plumeTable, reference, benchmarks] = await Promise.all([
-    getJson('./data/thermo.json'), getJson('./data/plume_table.json'), getJson('./data/reference_trajectory.json'), getJson('./data/benchmarks.json'),
+  const [thermo, plumeTable, reference, benchmarks, thermal] = await Promise.all([
+    getJson('./data/thermo.json'), getJson('./data/plume_table.json'), getJson('./data/reference_trajectory.json'),
+    getJson('./data/benchmarks_physics.json'), getJson('./data/thermal.json'),
   ]);
-  Object.assign(extra, { thermo, plumeTable, reference, benchmarks });
+  Object.assign(extra, { thermo, plumeTable, reference, benchmarks, thermal });
   const st = await makeStepperFactory();
   const e = new Engine(canvas, cfg, st.make, st.label);
   await e.init();

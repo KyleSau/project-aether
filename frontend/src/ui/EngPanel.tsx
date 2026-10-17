@@ -63,10 +63,16 @@ export function EngPanel({ engine }: { engine: Engine }) {
           ))}
         </div>
       ) : <div className="muted">thermo.json not present (run backend/precompute.py)</div>}
+      <h4>THERMAL <span className="tag rom">ESTIMATE</span></h4>
+      {extra.thermal ? (() => { const t = extra.thermal as { model: string; peak_heat_flux_kW_m2: number; peak_t: number; peak_h_m: number; total_heat_load_MJ_m2: number };
+        return <div className="muted">{t.model}: peak {f(t.peak_heat_flux_kW_m2, 1)} kW/m² at T+{f(t.peak_t, 0)} s ({f(t.peak_h_m / 1000, 1)} km), load {f(t.total_heat_load_MJ_m2, 2)} MJ/m² (reference trajectory)</div>; })() : <div className="muted">thermal.json not present</div>}
+      <h4>PHYSICS BENCHMARK</h4>
+      {extra.benchmarks ? (() => { const b = extra.benchmarks as { ts_full: { stepsPerSec: number }; wasm_full: { stepsPerSec: number }; accuracy: { ts_final_pos_err_vs_python_m: number } };
+        return <div className="muted">TS {(b.ts_full.stepsPerSec / 1e3).toFixed(0)}k steps/s · WASM {(b.wasm_full.stepsPerSec / 1e3).toFixed(0)}k steps/s · |Δr| vs Python {f(b.accuracy.ts_final_pos_err_vs_python_m, 2)} m (Node/V8)</div>; })() : null}
       <h4>EVENTS</h4>
       <div className="events">{M.sim.events.map((e, i) => <div key={i}>T{e.t >= 0 ? '+' : ''}{f(e.t, 2)} s · {e.name}</div>)}</div>
       <h4>CFD <span className="tag na">NOT CONNECTED</span></h4>
-      <div className="muted">OpenFOAM adapter ready (backend/openfoam). No solver output is displayed.</div>
+      <div className="muted">OpenFOAM adapter + axisymmetric rhoCentralFoam case generator ready (backend/openfoam). No OpenFOAM installation is available, so no CFD has been run and no solver field data is displayed. Needs: WSL2 Ubuntu + OpenFOAM (or Docker image) with user approval.</div>
     </aside>
   );
 }

@@ -5,7 +5,7 @@ import * as THREE from 'three/webgpu';
 import type { VehicleConfig } from '../physics/config';
 import { atmosphere } from '../physics/atmosphere';
 import { plumeState, type PlumeState } from './plumeModel';
-import { ParticleSystem } from './scene/Particles';
+import type { ParticleSystem } from './scene/Particles';
 import { applyPlume, makePlumeMesh, type PlumeUniforms } from './scene/Plume';
 import { GROUND_Y, MOUND_HALF, DECK_Y } from './scene/Launchpad';
 import type { V3 } from './CameraRig';
@@ -35,6 +35,8 @@ export class Effects {
   ps1: PlumeState | null = null;
   ps2: PlumeState | null = null;
   shake = 0;
+  acoustic = 0;
+  nearField = false;
   private trailAcc = 0;
   private padAcc = 0;
   private steamAcc = 0;
@@ -42,9 +44,9 @@ export class Effects {
   private thrustLog: [number, number][] = [];
   budget: number;
 
-  constructor(private cfg: VehicleConfig, capacity: number, s1Group: THREE.Group, s2Group: THREE.Group, enginePositions: THREE.Vector3[], s2ExitY: number) {
-    this.particles = new ParticleSystem(capacity);
-    this.budget = capacity;
+  constructor(private cfg: VehicleConfig, particles: ParticleSystem, s1Group: THREE.Group, s2Group: THREE.Group, enginePositions: THREE.Vector3[], s2ExitY: number) {
+    this.particles = particles;
+    this.budget = particles.capacity;
     for (const p of enginePositions) {
       const c = makePlumeMesh(true);
       c.mesh.position.copy(p);
@@ -87,11 +89,11 @@ export class Effects {
       const start = Math.min(1, inp.thrS1 * 1.2);
       const vacF = Math.min(1, Math.max(0, 1 - inp.pa / 101325));
       // individual cores: short and bright; length grows as ambient pressure falls
-      for (const c of this.s1Cores) applyPlume(c.u, ps, re1, (6 + 26 * vacF) * start, 3.0 * start, 1);
+      for (const c of this.s1Cores) applyPlume(c.u, ps, re1, (6 + 26 * vacF) * start, 5 * start, 1);
       // merged envelope around the cluster
       const clusterR = 1.85;
       const L = (38 + 160 * Math.pow(vacF, 2)) * start;
-      applyPlume(this.s1Outer.u, ps, re1, L, 0.8 * start, clusterR / re1);
+      applyPlume(this.s1Outer.u, ps, re1, L, 1.6 * (1 - 0.8 * vacF) * start, (clusterR * 1.15) / re1);
     }
     const s2On = inp.s2Burning && inp.thrS2 > 0.001;
     this.s2Core.mesh.visible = this.s2Outer.mesh.visible = s2On;
@@ -100,8 +102,8 @@ export class Effects {
       this.ps2 = ps;
       const re2 = Math.sqrt(e2.ae_m2 / Math.PI);
       const st = Math.min(1, inp.thrS2 * 1.2);
-      applyPlume(this.s2Core.u, ps, re2 * 0.9, 18 * st, 1.4 * st, 0.9);
-      applyPlume(this.s2Outer.u, ps, re2, 120 * st, 0.35 * st, 1);
+      applyPlume(this.s2Core.u, ps, re2 * 0.9, 22 * st, 3 * st, 0.9);
+      applyPlume(this.s2Outer.u, ps, re2, 240 * st, 0.35 * st, 1);
     }
     // ---------------- engine light ----------------
     const thrustTotal = (s1On ? inp.thrustS1 : 0) + (s2On ? inp.thrustS2 : 0);
@@ -136,6 +138,8 @@ export class Effects {
     const transonic = Math.exp(-Math.pow((inp.mach - 1.0) / 0.25, 2));
     const buffet = (inp.qbar / 30000) * (0.35 + 0.65 * transonic);
     const near = d < 120 ? 1 : 0;
+    this.acoustic = inp.pa < 50 ? 0 : acoustic * Math.min(1, inp.pa / 20000 + (d < 2000 ? 1 : 0));
+    this.nearField = d < 2000;
     this.shake = acoustic + near * (0.08 * (inp.s1Burning ? inp.thrS1 : inp.thrS2) + 0.5 * buffet);
   }
 

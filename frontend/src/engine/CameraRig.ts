@@ -37,8 +37,8 @@ export class CameraRig {
   pitch = 0.15;
   dist = 120;
   orbYaw = 0.6;
-  orbPitch = 0.35;
-  orbDist = 2.6e6;
+  orbPitch = 0.95;
+  orbDist = 3.2e6;
   private smoothFov = 40;
 
   setMode(m: CamMode) {
@@ -86,10 +86,12 @@ export class CameraRig {
       }
       case 'engine': {
         const off = cross(inp.axis, inp.side);
-        pos = add(add(inp.base, inp.axis, 6), add(inp.side, off, 0.6), 16);
-        target = add(inp.base, inp.axis, -10);
+        const perp = norm(add(inp.side, off, 0.75));
+        const eb = inp.separated ? add(inp.base, inp.axis, 42.4) : inp.base; // active engine exit plane
+        pos = add(add(eb, inp.axis, inp.separated ? 2 : 1), perp, inp.separated ? 20 : 26);
+        target = add(eb, inp.axis, inp.separated ? -16 : -14);
         up = inp.axis;
-        fov = 50;
+        fov = 55;
         break;
       }
       case 'onboard': {

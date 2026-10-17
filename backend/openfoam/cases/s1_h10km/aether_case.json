@@ -1,0 +1,22 @@
+{
+  "stage": "stage1",
+  "altitude_m": 10000.0,
+  "flight_speed_m_s": 400.9897089231242,
+  "pe_pa": 69055.1,
+  "Te_K": 1826.3034521247532,
+  "ve_m_s": 3095.4301414874362,
+  "gamma": 1.2257890129819873,
+  "mw": 22.65665839637027,
+  "exit_radius_m": 0.515979058493775,
+  "pa_pa": 26499.89813925335,
+  "Ta_K": 223.25209264797857,
+  "domain_length_exit_radii": 60.0,
+  "domain_radius_exit_radii": 20.0,
+  "nx": 480,
+  "nr_jet": 40,
+  "nr_outer": 140,
+  "wedge_deg": 2.5,
+  "end_time_s": 0.02,
+  "n_procs": 8,
+  "label": "CASE DEFINITION (not solver output)"
+}

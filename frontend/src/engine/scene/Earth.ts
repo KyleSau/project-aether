@@ -15,7 +15,7 @@ export class Earth {
   uCamAlt = uniform(0);
   constructor(segments = 256) {
     const geo = new THREE.SphereGeometry(1, segments, segments / 2);
-    const mat = new THREE.MeshBasicNodeMaterial({ fog: false });
+    const mat = new THREE.MeshBasicNodeMaterial({ fog: true });
     const color = Fn(() => {
       const d = normalize(positionGeometry);
       // local tangent coordinates around the pad (pad at +Y)
@@ -33,7 +33,7 @@ export class Earth {
       const lat = abs(d.y.mul(0.6).add(d.z.mul(-0.8))); // rough latitude proxy relative to a tilted pole
       const veg = mix(vec3(0.07, 0.13, 0.05), vec3(0.32, 0.27, 0.16), smoothstep(-0.1, 0.25, n2));
       const ice = smoothstep(0.82, 0.9, lat);
-      const landCol = mix(veg, vec3(0.85, 0.88, 0.92), ice);
+      const landCol = mix(mix(veg, vec3(0.16, 0.19, 0.1), near), vec3(0.85, 0.88, 0.92), ice);
       const ocean = vec3(0.012, 0.05, 0.11);
       const surf = mix(ocean, landCol, land);
       // lighting
@@ -49,7 +49,7 @@ export class Earth {
       const mu = max(dot(d, viewDir), 0.02);
       const hazeAmt = float(1).sub(exp(float(-0.18).div(mu))).mul(smoothstep(-5000, 30000, this.uCamAlt).mul(0.7).add(0.3));
       const hazeCol = vec3(0.35, 0.55, 0.95).mul(clamp(ndl.add(0.15), 0, 1));
-      const night = vec3(0.004, 0.006, 0.012);
+      const night = vec3(0.008, 0.012, 0.024);
       return mix(base, hazeCol, hazeAmt).mul(this.uSunI).add(select(ndl.lessThan(0), night, vec3(0)));
     })();
     mat.colorNode = color;

@@ -4,7 +4,7 @@
 import * as THREE from 'three/webgpu';
 import T from '../tsl';
 const {
-  uniform, float, vec3, positionLocal, normalView, positionViewDirection, abs, dot, exp, max, min, cos, sin,
+  uniform, float, vec3, positionLocal, positionGeometry, normalView, positionViewDirection, abs, dot, exp, max, min, cos, sin,
   pow, mix, smoothstep, mx_noise_float, time, clamp, atan, Fn, sqrt,
 } = T;
 import type { PlumeState } from '../plumeModel';
@@ -26,7 +26,7 @@ export function makePlumeMesh(core: boolean): { mesh: THREE.Mesh; u: PlumeUnifor
     cell: uniform(4), diamonds: uniform(0), intensity: uniform(0), vac: uniform(0), ripple: uniform(0),
     mdX: uniform(2), md: uniform(0), seed: uniform(Math.random() * 100), core: uniform(core ? 1 : 0),
   };
-  const x = positionLocal.y.negate().mul(u.len); // axial distance from exit [m]
+  const x = positionGeometry.y.negate().mul(u.len); // axial distance from exit [m]
   const radius = Fn(() => {
     const dr = u.rj.sub(u.re);
     const k = abs(u.tanT).div(max(abs(dr), float(0.02)));
@@ -34,31 +34,37 @@ export function makePlumeMesh(core: boolean): { mesh: THREE.Mesh; u: PlumeUnifor
     const rip = float(1).add(u.ripple.mul(sin(x.div(u.cell).mul(TWO_PI))).mul(exp(x.div(u.cell.mul(4)).negate())));
     return max(r0.mul(rip), float(0.05));
   })();
-  const ang = atan(positionLocal.z, positionLocal.x);
+  const ang = atan(positionGeometry.z, positionGeometry.x);
   const wob = mx_noise_float(vec3(x.mul(0.15), ang.mul(1.5), time.mul(9).add(u.seed))).mul(0.06).mul(x.div(u.len).add(0.1));
   const rr = radius.mul(float(1).add(wob));
-  const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-  mat.positionNode = vec3(positionLocal.x.mul(rr), positionLocal.y.mul(u.len), positionLocal.z.mul(rr));
-  // brightness
+  const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+  mat.positionNode = vec3(positionGeometry.x.mul(rr), positionGeometry.y.mul(u.len), positionGeometry.z.mul(rr));
+  // brightness (ARTISTIC luminosity on top of the ROM geometry)
   const s = x.div(u.len);
-  const axial = exp(s.mul(u.core.mul(3).add(2.2)).negate());
+  const axial = exp(s.mul(u.core.mul(2.5).add(1.6)).negate());
   const ph = x.div(u.cell).mul(TWO_PI);
-  const dia = pow(max(cos(ph), float(0)), float(8)).mul(exp(x.div(u.cell.mul(5)).negate())).mul(u.diamonds);
-  const disk = exp(pow(x.sub(u.mdX).div(max(u.cell.mul(0.08), float(0.15))), float(2)).negate()).mul(u.md).mul(1.5);
+  const dia = pow(max(cos(ph), float(0)), float(10)).mul(exp(x.div(u.cell.mul(6)).negate())).mul(u.diamonds);
+  const disk = exp(pow(x.sub(u.mdX).div(max(u.cell.mul(0.08), float(0.15))), float(2)).negate()).mul(u.md).mul(2.0);
   const facing = abs(dot(normalView, positionViewDirection));
-  const thick = pow(facing, mix(float(2.4), float(1.0), u.vac));
+  // chord length through a cylinder ~ facing; radial emission profile sharper for cores
+  const thick = pow(facing, mix(mix(float(1.8), float(2.8), u.core), float(1.1), u.vac));
+  const edgeN = mx_noise_float(vec3(x.mul(0.22).sub(time.mul(25)), ang.mul(2.5), u.seed));
+  const edge = smoothstep(0.02, 0.45, facing.add(edgeN.mul(0.3)).sub(0.05));
+  const streak = mx_noise_float(vec3(ang.mul(5), x.mul(0.06).sub(time.mul(35)), u.seed.add(7))).mul(0.35).add(0.85);
   const flick = mx_noise_float(vec3(x.mul(0.35).sub(time.mul(60)), ang.mul(2), u.seed)).mul(0.25).add(0.9);
-  const tailFade = float(1).sub(smoothstep(0.55, 1.0, s));
-  const headFade = smoothstep(0.0, 0.015, s);
-  const I = u.intensity.mul(axial.mul(float(1).add(dia.mul(2.5))).add(disk)).mul(thick).mul(flick).mul(tailFade).mul(headFade);
-  // colour: RP-1 core white-yellow -> orange envelope; vacuum plume pale and translucent
-  const hot = vec3(1.0, 0.86, 0.62);
-  const warm = vec3(1.0, 0.46, 0.14);
-  const vacC = vec3(0.65, 0.72, 1.0);
-  const col0 = mix(warm, hot, clamp(axial.mul(u.core.add(0.6)), 0, 1));
-  const col = mix(col0, mix(vacC, hot, axial), u.vac.mul(0.7));
-  // fade the plume's own geometry near the very wide vacuum skirt
-  const vacFade = mix(float(1), exp(s.mul(2.5).negate()), u.vac);
+  const tailFade = float(1).sub(smoothstep(0.45, 1.0, s));
+  const headFade = smoothstep(0.0, 0.012, s);
+  const I = u.intensity.mul(axial.mul(float(1).add(dia.mul(3.0))).add(disk)).mul(thick).mul(edge).mul(streak).mul(flick).mul(tailFade).mul(headFade);
+  // colour: RP-1 core white-yellow -> orange -> dull red tail; vacuum plume pale, translucent
+  const white = vec3(1.0, 0.95, 0.85);
+  const hot = vec3(1.0, 0.68, 0.32);
+  const warm = vec3(1.0, 0.42, 0.12);
+  const ember = vec3(0.7, 0.18, 0.05);
+  const heat = clamp(axial.mul(u.core.mul(0.45).add(0.6)).add(dia.mul(0.5)), 0, 1);
+  const col0 = mix(mix(ember, warm, smoothstep(0.0, 0.35, heat)), mix(hot, white, smoothstep(0.75, 1.0, heat)), smoothstep(0.3, 0.75, heat));
+  const vacC = vec3(0.62, 0.7, 1.0);
+  const col = mix(col0, mix(vacC, hot, axial.mul(u.core)), u.vac.mul(0.75));
+  const vacFade = mix(float(1), exp(s.mul(2.0).negate()), u.vac);
   mat.colorNode = col.mul(I).mul(vacFade);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
@@ -74,7 +80,7 @@ export function applyPlume(u: PlumeUniforms, ps: PlumeState, exitRadius: number,
   u.re.value = re;
   u.rj.value = rj;
   u.tanT.value = Math.tan(Math.min(Math.abs(ps.thetaB), 1.3)) * Math.sign(ps.thetaB || 1);
-  u.spread.value = 0.035 + 0.12 * vac;
+  u.spread.value = (u.core.value > 0.5 ? 0.03 : 0.065) + 0.12 * vac;
   u.cell.value = Math.max(ps.cellLength * radiusScale, re * 0.8);
   u.diamonds.value = ps.diamonds;
   u.ripple.value = Math.min(0.18, 0.12 * Math.abs(Math.log(ps.ratio))) * ps.diamonds;

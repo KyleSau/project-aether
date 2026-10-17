@@ -4,6 +4,7 @@ import { CAM_MODES, type CamMode } from './engine/CameraRig';
 import { PHASE_NAMES, ORBIT, S2_DEPLETED } from './physics/dynamics';
 import { COUNTDOWN_S } from './engine/MissionController';
 import { EngPanel } from './ui/EngPanel';
+import { TrajPlot } from './ui/TrajPlot';
 import { boot } from './boot';
 
 const fmt = (v: number, d = 0) => (isFinite(v) ? v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) : '—');
@@ -26,7 +27,7 @@ export function App() {
   const [cam, setCam] = useState<CamMode>('pad');
   const [telOpen, setTelOpen] = useState(() => window.innerWidth > 700);
   const [eng, setEng] = useState(false);
-  const [tod, setTod] = useState<TimeOfDay>('dusk');
+  const [tod, setTod] = useState<TimeOfDay>('dawn');
   const [help, setHelp] = useState(false);
 
   useEffect(() => {
@@ -41,7 +42,7 @@ export function App() {
   useEffect(() => {
     if (!engine) return;
     const k = (ev: KeyboardEvent) => {
-      if (ev.key === ' ') { engine.mission.state === 'idle' ? engine.mission.launch() : (engine.mission.paused = !engine.mission.paused); }
+      if (ev.key === ' ') { engine.mission.state === 'idle' ? engine.launch() : (engine.mission.paused = !engine.mission.paused); }
       const i = parseInt(ev.key, 10);
       if (i >= 1 && i <= CAM_MODES.length) { engine.setCamera(CAM_MODES[i - 1].id); setCam(CAM_MODES[i - 1].id); }
       if (ev.key === 'e') { engine.engineering = !engine.engineering; setEng(engine.engineering); }
@@ -112,6 +113,8 @@ export function App() {
             <Item k="Pitch / Hdg" v={`${fmt(att.pitch, 1)}° / ${fmt(att.heading, 1)}°`} />
             <Item k="AoA" v={`${fmt((tel.alpha * 180) / Math.PI, 2)}°`} />
             <Item k="Ambient p" v={`${fmt(tel.P / 1e3, 3)} kPa`} />
+            <div className="sub">TRAJECTORY (alt km vs downrange)</div>
+            <TrajPlot engine={engine!} />
             <div className="bars">
               <Bar label="S1 PROP" f={prop1} />
               <Bar label="S2 PROP" f={prop2} />
@@ -134,7 +137,7 @@ export function App() {
 
       <footer className="controls">
         {M?.state === 'idle' && !M.replay ? (
-          <button className="launch" onClick={() => M.launch()}>LAUNCH</button>
+          <button className="launch" onClick={() => engine!.launch()}>LAUNCH</button>
         ) : (
           <div className="row">
             <button onClick={() => { if (M) M.paused = !M.paused; }}>{M?.paused ? '▶' : '❚❚'}</button>
@@ -156,7 +159,8 @@ export function App() {
         </div>
         <div className="row small">
           <button className={eng ? 'on' : ''} onClick={() => { if (!engine) return; engine.engineering = !engine.engineering; setEng(engine.engineering); }}>Engineering</button>
-          {(['day', 'dusk', 'night'] as TimeOfDay[]).map((t) => (
+          <button className={engine?.audio.muted ? '' : 'on'} onClick={() => { if (engine) engine.audio.muted = !engine.audio.muted; }}>{engine?.audio.muted ? 'Sound off' : 'Sound'}</button>
+          {(['day', 'dawn', 'night'] as TimeOfDay[]).map((t) => (
             <button key={t} className={tod === t ? 'on' : ''} onClick={() => { engine?.setTimeOfDay(t); setTod(t); }}>{t}</button>
           ))}
         </div>

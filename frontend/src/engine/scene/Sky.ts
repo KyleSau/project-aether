@@ -104,9 +104,12 @@ export class SkyModel {
       const dh = dot(rel, this.uUp);
       const H = float(1600); // haze scale height [m]
       const h0 = max(this.uCamAltM, 0);
-      const x = dh.div(H);
-      const geom = select(abs(x).lessThan(1e-3), float(1), float(1).sub(exp(x.negate())).div(x));
-      const tau = float(2.5e-5).mul(this.uHaze).mul(L).mul(exp(h0.div(H).negate())).mul(geom);
+      const h1 = max(h0.add(dh), 0);
+      // integral of exp(-h/H) along a straight path, in an overflow-safe form
+      const dhh = h1.sub(h0);
+      const e0 = exp(h0.div(H).negate()), e1 = exp(h1.div(H).negate());
+      const mean = select(abs(dhh).lessThan(1.0), e0, e0.sub(e1).mul(H).div(dhh));
+      const tau = float(2.5e-5).mul(this.uHaze).mul(L).mul(mean);
       const factor = float(1).sub(exp(tau.negate()));
       return min(factor, 0.97);
     })();

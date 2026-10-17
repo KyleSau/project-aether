@@ -3,7 +3,7 @@
 // Render frame: X east, Y up, Z south; vehicle base (mount top) at y = 0.
 import * as THREE from 'three/webgpu';
 import T from '../tsl';
-const { texture, uv, float, vec2, mix, mx_noise_float, positionGeometry, vec3, uniform } = T;
+const { texture, uv, float, vec2, mix, mx_noise_float, positionGeometry, vec3, uniform, length, smoothstep } = T;
 
 export const DECK_Y = -8; // pad deck elevation relative to vehicle base
 export const GROUND_Y = -16; // surrounding terrain
@@ -56,7 +56,10 @@ export class Launchpad {
     const macro = mx_noise_float(positionGeometry.mul(0.0012)).mul(0.5).add(0.5);
     const macro2 = mx_noise_float(positionGeometry.mul(0.006)).mul(0.5).add(0.5);
     const gcol = texture(grassMap, guv).rgb;
-    grass.colorNode = mix(gcol.mul(vec3(0.62, 0.86, 0.45)), gcol.mul(vec3(0.95, 1.0, 0.62)), macro).mul(macro2.mul(0.35).add(0.75));
+    const nearCol = mix(gcol.mul(vec3(0.62, 0.86, 0.45)), gcol.mul(vec3(0.95, 1.0, 0.62)), macro).mul(macro2.mul(0.35).add(0.75));
+    // blend to the Earth-sphere land colour with distance so the terrain disc edge disappears
+    const farD = length(vec2(positionGeometry.x, positionGeometry.y));
+    grass.colorNode = mix(nearCol, vec3(0.16, 0.19, 0.1).mul(macro.mul(0.4).add(0.8)), smoothstep(2500, 22000, farD));
     grass.normalMap = grassNor;
     grassNor.repeat.set(8000, 8000);
     // terrain disc follows Earth curvature (drop = r^2 / 2R) so it meets the global Earth sphere
@@ -288,7 +291,7 @@ export class Launchpad {
       pole.position.set(x, GROUND_Y + 20, z);
       g.add(pole);
       const lm = new THREE.MeshStandardNodeMaterial({ color: 0x222222, roughness: 0.4 });
-      lm.emissiveNode = vec3(1.0, 0.92, 0.75).mul(float(this.lightsOn as unknown as THREE.Node).mul(14));
+      lm.emissiveNode = vec3(1.0, 0.92, 0.75).mul(float(this.lightsOn as unknown as THREE.Node).mul(4));
       this.lampMats.push(lm);
       const lamp = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 0.8), lm);
       lamp.position.set(x, GROUND_Y + 40, z);

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Project Aether plume case (stage1, h=10000 m). Requires OpenFOAM (ESI v2312+ or Foundation v11).
+cd "${0%/*}" || exit 1
+. ${WM_PROJECT_DIR:?}/bin/tools/RunFunctions
+runApplication blockMesh
+runApplication checkMesh
+runApplication decomposePar
+runParallel rhoCentralFoam
+runApplication reconstructPar -latestTime
+touch AETHER_RUN_COMPLETE
