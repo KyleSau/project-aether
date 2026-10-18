@@ -1,9 +1,10 @@
 Project Aether static site
-Total: 2.29 MB in 25 files
+Total: 5.93 MB in 26 files
 
-    858.8 KB  assets/three.webgpu-ChfEwLPc.js
+   3663.9 KB  models/rocket.glb
+    873.5 KB  assets/three.webgpu-D7JXzpMD.js
     353.5 KB  data/reference_trajectory.json
-    305.7 KB  assets/index-C1SvVsl9.js
+    350.4 KB  assets/index-GS7DtVWv.js
     159.9 KB  assets/aether_wasm_bg-DOT2Uvo0.wasm
     121.3 KB  tex/sparse_grass_nor_gl.jpg
      84.9 KB  data/plume_table.json
@@ -21,8 +22,8 @@ Total: 2.29 MB in 25 files
       5.3 KB  assets/aether_wasm-6b8p7i7f.js
       4.2 KB  data/vehicle.json
       2.6 KB  data/benchmarks_render.json
-      2.1 KB  assets/Overlays-BB3eJsrU.js
+      2.1 KB  assets/Overlays-BE_-nWZc.js
       1.0 KB  data/benchmarks_physics.json
       0.8 KB  index.html
-      0.3 KB  assets/MotionBlur-D5Ro0o0X.js
+      0.3 KB  assets/MotionBlur-DB37lm--.js
       0.1 KB  tex/LICENSE.txt
