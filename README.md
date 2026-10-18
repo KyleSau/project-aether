@@ -37,13 +37,29 @@ The project had three rules:
 | Pad at dawn | Lift-off |
 |---|---|
 | ![Pad](docs/img/pad_dawn.jpg) | ![Lift-off](docs/img/liftoff.jpg) |
-| **Engineering overlays** (CG/CP, thrust vector, plume model, Cantera data) | **Orbit achieved** |
-| ![Engineering overlays](docs/img/engineering_overlays.jpg) | ![Orbit](docs/img/orbit_achieved.jpg) |
+| **Engineering overlays** (CG/CP, thrust vector, plume model, Cantera data) | **Fairing separation** |
+| ![Engineering overlays](docs/img/engineering_overlays.jpg) | ![Fairing separation](docs/img/fairing_sep.jpg) |
 
 There are **7 cameras**: Pad, Engines, Tracker, Onboard, Aerial, Free and Orbital. The other controls are:
 - time warp from ½× to 50×, plus replay;
 - day, dawn and night lighting;
 - an engineering mode that draws forces, CG and CP, the atmosphere profile, the plume model and the exhaust thermochemistry.
+
+## The vehicle model
+
+![Vehicle model: assembled and exploded](docs/img/vehicle_model.png)
+
+The rocket's 3D model was made with AI tools and then cleaned up in Blender:
+1. **Reference image:** generated from a written spec of the simulated vehicle's proportions.
+2. **3D model:** built from that image with [Meshy](https://www.meshy.ai) image-to-3D.
+3. **Clean-up:** the Blender script [`tools/rocket_model/process_meshy.py`](tools/rocket_model/process_meshy.py) does the following:
+   - deletes hidden interior surfaces;
+   - reduces the model from 347k to about 85k triangles, keeping the texture seams intact;
+   - lengthens the stage-1 and stage-2 barrels by repeating plain sections, so hatches and rivets aren't stretched;
+   - scales each section to the dimensions in [`data/vehicle.json`](data/vehicle.json): 70 m tall, 3.7 m wide, stages split at 45 m, a 2.6 m fairing;
+   - splits it into the parts the physics flies separately: stage 1, nine nozzles, stage 2, and two fairing halves.
+
+The output is a 3.8 MB GLB with WebP textures. The parts separate where the simulation says they do. The nozzles glow from the live engine state, and the plumes come out of the model's nozzle exits. If the model fails to load, the original procedural rocket is used instead (`?model=procedural` forces it). The model is **ARTISTIC** geometry fitted to the physical dimensions. The aerodynamics still come from the drag and lift coefficient tables, not from this mesh.
 
 ## The physics
 
@@ -114,7 +130,7 @@ TypeScript already runs about 229× faster than 50× warp needs, so WASM stays o
 |---|---|
 | **SOLVER DATA** | Trajectory, attitude, staging events, thrust, mass, Mach, q, orbit elements, Cantera chamber/exit states |
 | **REDUCED-ORDER MODEL** | Plume shape, shock-cell spacing, Mach disk, stagnation heating, spent-stage and fairing ballistics (3-DOF) |
-| **ARTISTIC** | Plume colour and glow, smoke, steam, clouds, vapour cone, procedural Earth, camera shake, audio |
+| **ARTISTIC** | Vehicle 3D model (fitted to the physical dimensions), plume colour and glow, smoke, steam, clouds, vapour cone, procedural Earth, camera shake, audio |
 | **NOT CONNECTED** | OpenFOAM `rhoCentralFoam` adapter. A wedge case generator exists; **no CFD has been run, and no CFD output is shown** |
 
 ## Running locally
@@ -142,6 +158,7 @@ Rebuild the README figures with `python docs/figures/make_figures.py`. They are 
 physics/    Python 6-DOF reference model, atmosphere, Cantera thermo, plume ROM + tests
 backend/    FastAPI app, offline precompute, OpenFOAM case generator/adapter (not connected)
 frontend/   Vite + React + three.js (three/webgpu + TSL) renderer and the TS physics port
+tools/      rocket_model/: Blender clean-up of the Meshy vehicle model, README render
 wasm/       Rust port of the integrator (wasm-bindgen)
 site/       Static build, published to GitHub Pages
 docs/       AETHER.md (model details, validation, benchmarks, limitations), figures

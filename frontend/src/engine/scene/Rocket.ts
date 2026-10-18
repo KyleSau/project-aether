@@ -3,6 +3,7 @@
 import * as THREE from 'three/webgpu';
 import T from '../tsl';
 const { uniform, float, vec3, mix, smoothstep, positionLocal, color } = T;
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { VehicleConfig } from '../../physics/config';
 
 function panelTexture(w: number, h: number, rings: number, seams: number, base = '#e9ebee'): THREE.CanvasTexture {
@@ -62,6 +63,9 @@ export class RocketModel {
   s2NozzleExitY: number;
   s1ExitRadius: number;
   s2ExitRadius: number;
+  /** true once the textured model has replaced the procedural shells */
+  modelLoaded = false;
+  private s2Body: THREE.Mesh;
 
   constructor(cfg: VehicleConfig, detail = 2) {
     const g = cfg.geometry;
@@ -113,6 +117,7 @@ export class RocketModel {
     const body2 = new THREE.Mesh(new THREE.CylinderGeometry(R, R, s2Len, seg, 1, true), white2);
     body2.position.y = g.stage2.x0 + s2Len / 2;
     this.s2.add(body2);
+    this.s2Body = body2;
     const e2 = cfg.engines.stage2;
     this.s2ExitRadius = Math.sqrt(e2.ae_m2 / Math.PI);
     const bell2Len = 2.9;
@@ -157,6 +162,73 @@ export class RocketModel {
     for (const grp of [this.s1, this.s2, this.fairL, this.fairR]) {
       grp.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     }
+  }
+
+  /**
+   * Swap the procedural stage-1, stage-2 and fairing shells for the textured model built by
+   * tools/rocket_model/process_meshy.py (same body frame: metres, +Y nose, y = 0 at the stage-1 exit plane).
+   * The stage-2 vacuum nozzle, caps, payload and plume anchors stay procedural. Keeps the procedural
+   * vehicle if the file is missing or fails to load.
+   */
+  async loadModel(url: string): Promise<boolean> {
+    let gltf: { scene: THREE.Object3D };
+    try {
+      gltf = await new GLTFLoader().loadAsync(url);
+    } catch (e) {
+      console.warn('rocket model not loaded, using procedural vehicle', e);
+      return false;
+    }
+    const part = (name: string) => gltf.scene.getObjectByName(name);
+    const s1 = part('S1'), noz = part('S1_Nozzles'), s2 = part('S2'), fl = part('FairingL'), fr = part('FairingR');
+    if (!s1 || !noz || !s2 || !fl || !fr) return false;
+    const toNode = (m: THREE.Material, glow?: ReturnType<typeof uniform>) => {
+      const src = m as THREE.MeshStandardMaterial;
+      const n = new THREE.MeshStandardNodeMaterial();
+      n.setValues({
+        name: src.name, color: src.color, map: src.map, normalMap: src.normalMap, normalScale: src.normalScale,
+        roughnessMap: src.roughnessMap, metalnessMap: src.metalnessMap, roughness: src.roughness,
+        metalness: src.metalness, side: THREE.DoubleSide,
+      });
+      if (glow) {
+        // same heat model as the procedural bells: glow toward the throat, scaled by engine state
+        const hot = smoothstep(float(0.4), float(2.4), positionLocal.y);
+        n.emissiveNode = mix(color(0x000000), vec3(1.0, 0.32, 0.08).mul(3.0), hot.mul(glow as unknown as THREE.Node));
+      }
+      return n;
+    };
+    // a part with two materials (S1: body + interstage) arrives as a group of primitive meshes
+    const prep = (part: THREE.Object3D, glow?: ReturnType<typeof uniform>) => {
+      part.removeFromParent();
+      part.position.set(0, 0, 0);
+      part.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.material = Array.isArray(mesh.material) ? mesh.material.map((m) => toNode(m, glow)) : toNode(mesh.material, glow);
+        mesh.castShadow = mesh.receiveShadow = true;
+      });
+      return part;
+    };
+    let parts: THREE.Object3D[];
+    try {
+      parts = [prep(s1), prep(noz, this.s1Glow), prep(s2), prep(fl), prep(fr)];
+    } catch (e) {
+      console.warn('rocket model materials failed, using procedural vehicle', e);
+      return false;
+    }
+    // stage 1: the model replaces everything (the plume anchors are added later by Effects)
+    for (const c of [...this.s1.children]) this.s1.remove(c);
+    this.s1.add(parts[0], parts[1]);
+    const ep = JSON.parse((noz.userData.engine_positions as string) ?? '[]') as number[][];
+    if (ep.length === this.s1EnginePositions.length) ep.forEach((p, i) => this.s1EnginePositions[i].set(p[0], p[1], p[2]));
+    // stage 2: replace the barrel, keep the vacuum nozzle, end caps and payload
+    this.s2.remove(this.s2Body);
+    this.s2.add(parts[2]);
+    for (const [grp, part] of [[this.fairL, parts[3]], [this.fairR, parts[4]]] as const) {
+      for (const c of [...grp.children]) grp.remove(c);
+      grp.add(part);
+    }
+    this.modelLoaded = true;
+    return true;
   }
 
   private nozzleMaterial(glow: ReturnType<typeof uniform>, vac = false) {

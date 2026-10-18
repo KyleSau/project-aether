@@ -3,7 +3,7 @@ import { readdirSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname, extname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'site');
-const allowed = new Set(['.html', '.js', '.mjs', '.wasm', '.json', '.txt', '.css', '.png', '.jpg', '.webp', '.svg']);
+const allowed = new Set(['.html', '.js', '.mjs', '.wasm', '.json', '.txt', '.css', '.png', '.jpg', '.webp', '.svg', '.glb']);
 let total = 0;
 const files = [];
 const walk = (d) => {
@@ -32,3 +32,5 @@ const manifest = files.map(([f, s]) => `${(s / 1024).toFixed(1).padStart(9)} KB 
 writeFileSync(join(root, 'MANIFEST.txt'), `Project Aether static site\nTotal: ${(total / 1048576).toFixed(2)} MB in ${files.length} files\n\n${manifest}\n`);
 console.log(`site OK: ${files.length} files, ${(total / 1048576).toFixed(2)} MB`);
 if (total > 15 * 1048576) throw new Error('site exceeds 15 MB');
+// GitHub Pages: serve files as-is (no Jekyll processing)
+writeFileSync(join(root, '.nojekyll'), '');

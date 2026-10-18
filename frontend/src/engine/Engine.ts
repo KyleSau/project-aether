@@ -32,6 +32,7 @@ export interface EngineInfo {
   frameMs: number;
   particles: number;
   particleMode: string;
+  vehicleModel?: string;
   motionBlur?: boolean;
   drawCalls: number;
   triangles: number;
@@ -127,6 +128,8 @@ export class Engine {
     this.scene.add(this.pad.group);
     this.place(this.pad.group, [0, 0, 0]);
     this.rocket = new RocketModel(this.cfg, this.q.towerDetail);
+    if (params.get('model') !== 'procedural') await this.rocket.loadModel('./models/rocket.glb');
+    this.info.vehicleModel = this.rocket.modelLoaded ? 'textured' : 'procedural';
     this.scene.add(this.rocket.s1, this.rocket.s2, this.rocket.fairL, this.rocket.fairR);
     const useCompute = backend === 'WebGPU' && params.get('particles') !== 'analytic';
     const parts = useCompute ? new ComputeParticles(this.q.maxParticles) : new AnalyticParticles(this.q.maxParticles);
