@@ -1,0 +1,116 @@
+[
+ {
+  "pair": "Near pad",
+  "render": "pad/pad_full_thrust",
+  "reference": "imap/0/receding",
+  "render_hf_slope": -7.3440913945545905,
+  "ref_hf_slope": -6.9415951752165945,
+  "render_dSk": 1.1350184733857918,
+  "ref_dSk": 1.0056160047348466,
+  "render_mod": [
+   0.20952511914908087,
+   0.21063593539772868
+  ],
+  "ref_mod": [
+   0.515108824327591,
+   0.5116661723523885
+  ],
+  "render_crackle_cv": 1.1143639697349614,
+  "ref_crackle_cv": 3.9446332349223128
+ },
+ {
+  "pair": "Near pad (early ascent)",
+  "render": "pad/early_ascent",
+  "reference": "imap/0/decay",
+  "render_hf_slope": -7.8413754757447505,
+  "ref_hf_slope": -2.3783313920316407,
+  "render_dSk": 21.978664431033785,
+  "ref_dSk": -0.0027453745622182985,
+  "render_mod": [
+   0.2487699973135925,
+   0.34114329995030657
+  ],
+  "ref_mod": [
+   0.17287830859468453,
+   0.19548123682164312
+  ],
+  "render_crackle_cv": 2.7047757616871504,
+  "ref_crackle_cv": 1.6925251010333255
+ },
+ {
+  "pair": "~5 km",
+  "render": "obs5km/early_ascent",
+  "reference": "imap/1/peak_level",
+  "render_hf_slope": -8.664260460586924,
+  "ref_hf_slope": -6.525756410477953,
+  "render_dSk": 8.25246657686801,
+  "ref_dSk": 7.632232652992833,
+  "render_mod": [
+   0.2073162872710326,
+   0.26458697400522446
+  ],
+  "ref_mod": [
+   0.1308830266470852,
+   0.22800761350494844
+  ],
+  "render_crackle_cv": 1.5963491315489962,
+  "ref_crackle_cv": 1.9818511878541605
+ },
+ {
+  "pair": "~5 km later",
+  "render": "obs5km/mid_ascent",
+  "reference": "imap/1/ascent_decay",
+  "render_hf_slope": -8.905559570323618,
+  "ref_hf_slope": -6.965011932593242,
+  "render_dSk": 19.42709607924869,
+  "ref_dSk": 3.104176562385402,
+  "render_mod": [
+   0.30821242409802385,
+   0.3750040488924606
+  ],
+  "ref_mod": [
+   0.11536142977165526,
+   0.34086799621665076
+  ],
+  "render_crackle_cv": 5.062535327968049,
+  "ref_crackle_cv": 2.295024238401967
+ },
+ {
+  "pair": "~20 km",
+  "render": "obs20km/mid_ascent",
+  "reference": "atlas_sdo/0/ascent",
+  "render_hf_slope": -18.043858443787457,
+  "ref_hf_slope": -10.5762838238351,
+  "render_dSk": 0.6088232825769098,
+  "ref_dSk": 7.678510675420415,
+  "render_mod": [
+   0.28941928640180453,
+   0.3832761865551605
+  ],
+  "ref_mod": [
+   0.10870024435305167,
+   0.2128854524420782
+  ],
+  "render_crackle_cv": 2.1596968081467045,
+  "ref_crackle_cv": 1.9134103195053143
+ },
+ {
+  "pair": "~20 km vs beach",
+  "render": "obs20km/early_ascent",
+  "reference": "crew12/0/ascent_decay_A",
+  "render_hf_slope": -12.737044204050996,
+  "ref_hf_slope": -16.953924485101176,
+  "render_dSk": 0.5094084287816403,
+  "ref_dSk": 0.03772858196048421,
+  "render_mod": [
+   0.21832165205667597,
+   0.2936484549337018
+  ],
+  "ref_mod": [
+   0.09261422028780215,
+   0.19196289855862464
+  ],
+  "render_crackle_cv": 2.642405739483296,
+  "ref_crackle_cv": 2.5920481737321563
+ }
+]
