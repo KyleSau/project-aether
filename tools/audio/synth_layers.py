@@ -47,10 +47,15 @@ CROSSOVER_HZ = 80.0
 # steepening strength (dimensionless; total advection / rms slope). Tuned so the steepened waveform's
 # derivative skewness lands in the 4-8 range measured near rockets (see docs).
 STEEPEN_K = 2.0
-CRACKLE_SOFTCLIP = 1.4
+CRACKLE_EVENTS_PER_S = 18.0   # mean selected shock fronts per second at full weight (IMAP Blast-2 peak: 22/s > 5 sigma)
+CRACKLE_MIN_SEP_S = 0.004
+CRACKLE_AMP_EXP = 0.5
+CRACKLE_AMP_CAP = 3.0
+CRACKLE_DECAY_S = 0.004
+CRACKLE_FIZZ = 0.1           # residual ungated shock HF between bangs
 CRACKLE_RISE_HZ = 5000.0
 ENERGETIC_HZ = 2000.0
-CRACKLE_HP_HZ = 400.0
+CRACKLE_HP_HZ = 300.0
 FAST_MOD_SIGMA = 0.35
 
 
@@ -172,11 +177,29 @@ def make_jet_layers(prof, n):
     # finite shock rise time after propagation (~0.05-0.2 ms): gentle 2nd-order roll-off above CRACKLE_RISE_HZ
     shock_hf = np.fft.irfft(np.fft.rfft(s) * hp_c * highcut(f, CRACKLE_RISE_HZ, 1), n)
     lin_hf = np.fft.irfft(G * hp_c, n)
-    # soft-limit the very largest shock spikes (a = CRACKLE_SOFTCLIP x rms): far-field shock trains are dense,
-    # many moderate shocks rather than a few isolated giants (keeps dSk in the measured 3-8 range at distance)
-    a = CRACKLE_SOFTCLIP * shock_hf.std()
-    shock_hf = a * np.tanh(shock_hf / a)
+    # SPARSE, STRONG events ("large bullet" pops, ARTISTIC after listening feedback): only the strongest shock fronts
+    # of the steepened waveform are kept. Fronts = local maxima of ds/dt at least CRACKLE_MIN_SEP_S apart; the
+    # threshold is chosen for a mean of CRACKLE_EVENTS_PER_S. Because the waveform carries the large-scale modulation,
+    # the selected fronts cluster in loud passages: timing is random and bursty, never periodic.
+    ds = np.diff(np.concatenate([s, s[:1]])) * FS
+    pk, _ = signal.find_peaks(ds, distance=int(CRACKLE_MIN_SEP_S * FS))
+    h = ds[pk]
+    k_keep = int(CRACKLE_EVENTS_PER_S * n / FS)
+    thr = np.sort(h)[-k_keep] if len(h) > k_keep else h.min()
+    sel = pk[h >= thr]
+    amp = np.minimum((ds[sel] / thr) ** CRACKLE_AMP_EXP, CRACKLE_AMP_CAP)  # stronger fronts -> louder bangs
+    # gate around each front: 0.4 ms raised-cosine lead-in, then exponential decay (tau CRACKLE_DECAY_S), 25 ms long
+    lead, tail = int(0.0004 * FS), int(0.025 * FS)
+    tt = np.arange(-lead, tail)
+    win = np.where(tt < 0, 0.5 * (1 + np.cos(np.pi * tt / max(lead, 1))), np.exp(-tt / (CRACKLE_DECAY_S * FS)))
+    gate = np.zeros(n)
+    for i, aa in zip(sel, amp):
+        idx = (i + tt) % n
+        gate[idx] = np.maximum(gate[idx], aa * win)
+    shock_hf = shock_hf * (gate + CRACKLE_FIZZ)
     excess = shock_hf * (lin_hf.std() / shock_hf.std())  # at w=1 crackle carries the same HF energy as the linear jet
+    events = dict(n=int(len(sel)), rate_per_s=round(len(sel) / (n / FS), 2),
+                  interval_cv=round(float(np.std(np.diff(np.sort(sel))) / np.mean(np.diff(np.sort(sel)))), 3))
     # band-specific slow irregularity on top (rumble breathes more slowly and deeply than the mid band)
     m_lf = mod_process(n, rng("mod_lf"), 0.1, 2.0, 0.18)
     m_mid = mod_process(n, rng("mod_mid"), 0.3, 8.0, 0.08)
@@ -190,7 +213,7 @@ def make_jet_layers(prof, n):
     jet = g_hi * m_mid
     # crackle arrives in bursts (real recordings: inter-event CV ~2): extra slow intermittency on the shock layer only
     crackle = excess * m_mid * mod_process(n, rng("crackle_mod"), 0.2, 3.0, 0.3)
-    info = dict(steepen_K=STEEPEN_K, dSk_gaussian=dsp.deriv_skewness(g_hi, FS),
+    info = dict(steepen_K=STEEPEN_K, dSk_gaussian=dsp.deriv_skewness(g_hi, FS), crackle_selected_fronts=events,
                 crackle_events=dsp.crackle_events(jet + crackle + rumble, FS),
                 dSk_crackle_alone=dsp.deriv_skewness(crackle, FS),
                 dSk_jet_plus_0p6_crackle=dsp.deriv_skewness(jet + 0.6 * crackle, FS))
@@ -278,17 +301,41 @@ def make_ignition(prof):
         g = shaped_noise(n, lambda f: psd(f) * lowcut(f, 25, 2) ** 2, r)
         g = steepen(g, 2.8, n_steps=24) / g.std()
         x += 0.22 * g * env_ar(t, ts, 0.06, 0.45) * (1 + 0.3 * r.standard_normal())
-    # (3) ignition overpressure: single slow compression-rarefaction (~0.8 s period, Mathews 2020) +
-    #     a 16 Hz damped component; emitted at the flame-trench exit when thrust rises fastest.
-    t_iop = 0.9
-    tau = (t - t_iop)
-    iop = -tau / 0.13 * np.exp(-0.5 * (tau / 0.13) ** 2)  # Gaussian-derivative (N-like) pulse
-    iop += 0.45 * np.sin(2 * np.pi * 16 * tau) * np.exp(-np.clip(tau, 0, None) / 0.25) * (tau > 0)
-    x += 0.5 * iop * (np.abs(tau) < 2.0)
+    # (3) the ignition overpressure is a separate one-shot (make_iop) so its level can be set on its own
     # gentle fade-out and DC removal
     x *= np.clip((dur - t) / 0.5, 0, 1)
     x -= x.mean()
-    return x, dict(t_iop=t_iop, engine_starts=[round(float(s), 3) for s in starts])
+    return x, dict(engine_starts=[round(float(s), 3) for s in starts])
+
+
+IOP_OFFSET_S = 0.9  # after IGNITION: the sim's thrust rises fastest here
+
+
+def make_iop():
+    """Ignition overpressure as a clear low thump (ARTISTIC shape around MEASURED facts). t = 0.1 s is the front.
+    - Friedlander-type compression: 2 ms raised-cosine rise, positive phase T+ = 0.12 s, decay b = 1.6, followed by its
+      natural rarefaction;
+    - the ~0.8 s period compression/rarefaction and the 16 Hz component Mathews et al. 2020 measured at 8.3 km;
+    - low-pass 180 Hz (2nd order) so it is a thump, not a crack; three pad/terrain reflections (30/70/140 ms)."""
+    dur = 2.5
+    n = int(dur * FS)
+    t = np.arange(n) / FS
+    t0 = 0.1
+    tau = t - t0
+    Tp, bdec, rise = 0.12, 1.6, 0.002
+    fr = np.where(tau >= 0, (1 - tau / Tp) * np.exp(-bdec * tau / Tp), 0.0)
+    ramp = np.where((tau > -rise) & (tau < 0), 0.5 * (1 - np.cos(np.pi * (tau + rise) / rise)), 0.0)
+    p = fr + ramp
+    p += 0.35 * (-(tau - 0.2) / 0.13 * np.exp(-0.5 * ((tau - 0.2) / 0.13) ** 2))  # ~0.8 s period component
+    p += 0.3 * np.sin(2 * np.pi * 16 * tau) * np.exp(-np.clip(tau, 0, None) / 0.25) * (tau > 0)
+    y = p.copy()
+    for d, g in ((0.030, 0.4), (0.070, 0.25), (0.140, 0.16)):
+        k = int(d * FS)
+        y[k:] += g * p[:-k]
+    y = circ_filter(y, lambda f: highcut(f, 180.0, 2) * lowcut(f, 2.0, 1))
+    y *= np.clip((dur - t) / 0.6, 0, 1) * np.clip(t / 0.02, 0, 1)
+    y -= y.mean()
+    return y, dict(front_s=t0)
 
 
 def make_meco(prof):
@@ -366,6 +413,9 @@ def main(encode=True):
     # normalise rumble+jet+crackle with ONE gain so their relative levels stay physical
     tot = jet["rumble_lf"] + jet["jet_mix"]
     _, g_common = norm_rms(tot, -18.0)
+    pk = max(np.abs(jet[k]).max() for k in ("rumble_lf", "jet_mix", "crackle")) * 10 ** (g_common / 20)
+    if pk > 10 ** (-1 / 20):  # one shared gain: lower it until every layer of the group peaks <= -1 dBFS
+        g_common += 20 * math.log10(10 ** (-1 / 20) / pk)
     loops = {}
     for k in ("rumble_lf", "jet_mix", "crackle"):
         loops[k] = jet[k] * 10 ** (g_common / 20)
@@ -385,10 +435,10 @@ def main(encode=True):
     manifest = {"sample_rate_hz": FS, "seeds": SEEDS, "loop_seconds": LOOP_S, "synthesis_info": jinfo,
                 "calibration": {
                     "note": "rumble_lf, jet_mix and crackle share ONE gain (their relative levels are physical): rumble_lf+jet_mix "
-                            "power sum = -18 dBFS RMS and represents the SP-8072 source spectrum at the reference condition "
+                            "power sum = -18 dBFS RMS (lower if a crackle peak would exceed -1 dBFS; see jet_group_rms_dbfs) and represents the SP-8072 source spectrum at the reference condition "
                             "(stage 1, sea level, full thrust, U=2786 m/s, De=3.096 m, f_peak=18 Hz, peak-directivity, no absorption). "
                             "Other loops are normalised to -20 dBFS RMS; their absolute level comes from the mapping formulas.",
-                    "jet_group_rms_dbfs": -18.0,
+                    "jet_group_rms_dbfs": round(float(20 * np.log10(np.sqrt(np.mean((loops["rumble_lf"] + loops["jet_mix"]) ** 2)))), 2),
                     "runtime_eq_rule": "EQ_dB[b] = D[b] - A_group[b]; D = digital target band level from the model, A_group = the "
                                        "group's asset band level (layers[].octave_db power-summed over the group)",
                 }, "layers": [], "oneshots": []}
@@ -404,15 +454,24 @@ def main(encode=True):
                      third_oct_hz=[float(v) for v in dsp.THIRD_OCT], third_oct_db=third,
                      octave_hz=[float(v) for v in dsp.OCT], octave_db=octv, **meta[name])
         manifest["layers"].append(entry)
-    shots = {"ignition": make_ignition(prof), "meco_tail": make_meco(prof), "stage_sep_structural": make_sep()}
+    shots = {"ignition": make_ignition(prof), "ignition_overpressure": make_iop(), "meco_tail": make_meco(prof),
+             "stage_sep_structural": make_sep()}
     smeta = {"ignition": dict(event="IGNITION", offset_s=0.0, emit_at="pad (trench exit for the IOP)", tag="MEASURED shape + ARTISTIC level",
-                              role="igniter tick, staggered engine light-ups, ignition overpressure pulse"),
+                              role="igniter tick and staggered engine light-ups"),
+             "ignition_overpressure": dict(event="IGNITION", offset_s=IOP_OFFSET_S - 0.1, emit_at="pad (trench exit)",
+                                           tag="MEASURED period/16 Hz + ARTISTIC shape and level",
+                                           role="ignition overpressure: low thump (front at 0.1 s into the file); scalar gain per "
+                                                "pad_interaction.ignition_overpressure.level_rule"),
              "meco_tail": dict(event="MECO", offset_s=0.0, emit_at="vehicle (airborne, propagated)", tag="ROM/ARTISTIC",
                                role="thrust tail-off: spectrum slides down with chamber pressure + plume-collapse rumble"),
              "stage_sep_structural": dict(event="STAGE_SEP", offset_s=0.0, emit_at="onboard/cabin only", tag="ARTISTIC",
                                           role="separation clunk through the structure")}
     for name, (x, extra) in shots.items():
         x, _ = norm_rms(x, -20.0)
+        if name == "ignition_overpressure":  # peak-normalise the thump (its level is set by the profile rule)
+            x = x * (10 ** (-1.0 / 20) / np.abs(x).max())
+            extra = dict(extra, rms_main_dbfs=round(float(20 * np.log10(np.sqrt(np.mean(x[int(0.05 * FS):int(0.55 * FS)] ** 2)))), 2),
+                         rms_main_window_s=[0.05, 0.55])
         p = os.path.join(OUT, name + ".wav")
         write_wav(p, x)
         third, octv = asset_bands(x)

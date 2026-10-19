@@ -173,6 +173,7 @@ def segment_metrics(x, fs, label=""):
         hf_cutoff_hz=hf_cutoff(f, p), lf_rolloff_hz=lf_rolloff(f, p),
         hf_slope_db_per_oct=hf_slope_db_per_oct(f, p),
         crackle_rate_per_s=crackle_events(x, fs)["rate_per_s"], crackle_interval_cv=crackle_events(x, fs)["interval_cv"],
+        **{"bang_" + k: v for k, v in bang_stats(x, fs).items()},
         mod_index_0p5_4hz=float(np.sqrt(pm[(fm >= 0.5) & (fm <= 4)].sum() * (fm[1] - fm[0]))),
         mod_index_4_20hz=float(np.sqrt(pm[(fm > 4) & (fm <= 20)].sum() * (fm[1] - fm[0]))),
     )
@@ -191,7 +192,8 @@ def plot_panel(x, fs, title, path, t0=0.0, events=None, fmax=12000):
     ax[0].set_ylabel("amplitude (FS)")
     ax[0].set_title(title + " - waveform")
     nper = 4096
-    f, tt, S = signal.spectrogram(x, fs, nperseg=nper, noverlap=nper * 3 // 4, window="hann")
+    # float32 and 50 % overlap keep a 5-minute render's spectrogram under ~60 MB
+    f, tt, S = signal.spectrogram(x.astype(np.float32), fs, nperseg=nper, noverlap=nper // 2, window="hann")
     S = 10 * np.log10(S + 1e-14)
     vmax = np.percentile(S, 99.5)
     ax[1].pcolormesh(t0 + tt, f, S, shading="auto", cmap="magma", vmin=vmax - 80, vmax=vmax)
@@ -239,3 +241,61 @@ def crackle_events(x, fs, k=5.0, min_sep_s=0.002):
         return dict(rate_per_s=len(pk) / (len(x) / fs), interval_cv=float("nan"))
     iv = np.diff(pk) / fs
     return dict(rate_per_s=float(len(pk) / (len(x) / fs)), interval_cv=float(iv.std() / iv.mean()))
+
+
+def k_weight(x, fs):
+    """ITU-R BS.1770-4 K-weighting (pre-filter shelf + RLB high-pass), coefficients derived for any fs."""
+    import math
+    # stage 1: high shelf (f0 = 1681.97 Hz, G = +3.99984 dB, Q = 0.7071752)
+    f0, G, Q = 1681.974450955533, 3.999843853973347, 0.7071752369554196
+    K = math.tan(math.pi * f0 / fs)
+    Vh, Vb = 10 ** (G / 20), (10 ** (G / 20)) ** 0.499666774155
+    a0 = 1 + K / Q + K * K
+    b1 = [(Vh + Vb * K / Q + K * K) / a0, 2 * (K * K - Vh) / a0, (Vh - Vb * K / Q + K * K) / a0]
+    a1 = [1.0, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0]
+    # stage 2: high-pass (f0 = 38.135 Hz, Q = 0.5003270)
+    f0, Q = 38.13547087602444, 0.5003270373238773
+    K = math.tan(math.pi * f0 / fs)
+    a0 = 1 + K / Q + K * K
+    b2 = [1.0, -2.0, 1.0]
+    a2 = [1.0, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0]
+    return signal.lfilter(b2, a2, signal.lfilter(b1, a1, x))
+
+
+def lufs_integrated(x, fs):
+    """Integrated loudness (LUFS, mono) per ITU-R BS.1770-4: 400 ms blocks, 75 % overlap, -70 LUFS absolute and
+    -10 LU relative gates. Also returns the max momentary (400 ms) loudness."""
+    y = k_weight(np.asarray(x, dtype=np.float64), fs)
+    n, h = int(0.4 * fs), int(0.1 * fs)
+    if len(y) < n:
+        return float("nan"), float("nan")
+    c = np.concatenate([[0.0], np.cumsum(y * y)])
+    starts = np.arange(0, len(y) - n + 1, h)
+    z = (c[starts + n] - c[starts]) / n
+    L = -0.691 + 10 * np.log10(z + 1e-30)
+    g = z[L > -70]
+    if not len(g):
+        return float("-inf"), float(L.max())
+    rel = -0.691 + 10 * np.log10(g.mean()) - 10
+    g2 = z[(L > -70) & (L > rel)]
+    return float(-0.691 + 10 * np.log10(g2.mean())), float(L.max())
+
+
+def bang_stats(x, fs, hp_hz=1000.0, prominence_db=12.0, min_sep_s=0.01):
+    """Distinct-bang detector (how many crackle events stand out as individual pops): >hp_hz band, 2 ms RMS envelope,
+    events where it exceeds its 0.5 s running median by >= prominence_db, at least min_sep_s apart. Returns the rate,
+    the inter-event CV (periodic 'machine gun' -> 0) and the median prominence of the detected bangs."""
+    from scipy.ndimage import median_filter
+    y = signal.sosfilt(signal.butter(4, hp_hz, btype="high", fs=fs, output="sos"), np.asarray(x, dtype=np.float64))
+    h = int(0.001 * fs)
+    e = np.sqrt(np.convolve(y * y, np.ones(2 * h) / (2 * h), mode="same")[::h] + 1e-24)
+    L = 20 * np.log10(e)
+    med = median_filter(L, size=int(0.5 * fs / h) | 1, mode="nearest")
+    prom = L - med
+    pk, _ = signal.find_peaks(prom, height=prominence_db, distance=max(1, int(min_sep_s * fs / h)))
+    dur = len(x) / fs
+    if len(pk) < 3:
+        return dict(rate_per_s=len(pk) / dur, interval_cv=float("nan"), median_prominence_db=float("nan"))
+    iv = np.diff(pk) * h / fs
+    return dict(rate_per_s=float(len(pk) / dur), interval_cv=float(iv.std() / iv.mean()),
+                median_prominence_db=float(np.median(prom[pk])))

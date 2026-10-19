@@ -5,7 +5,7 @@
 //   jet_mix   A/B ─ xfade ─ layer ┴─ jet EQ ──────┐
 //   crackle   A/B ─ xfade ─ layer ── crackle EQ ──┼─ airborne (warp) ─┐
 //   pad_int.  A/B ─ xfade ─ layer ── pad EQ ──────┘                   │
-//   onboard_structure A/B ─ xfade ─ level ────────────────────────────┼─ mix ─ soft limiter ─ master ─ out
+//   onboard_structure A/B ─ xfade ─ level ────────────────────────────┼─ mix ─ look-ahead limiter (DynamicsCompressor) ─ ceiling clip ─ master ─ out
 //   aero_buffet       A/B ─ xfade ─ level ────────────────────────────┤
 //   one-shots ─ own static EQ ─ (airborne | mix) ─────────────────────┘
 //
@@ -15,21 +15,28 @@
 import { designShelfEq, LP_Q_DB, newShelfEq, type ShelfEq } from './eqDesign';
 import { LAYERS, SILENT_DB, type LayerName, type MixOut, type OneShotFire } from './mixModel';
 import { NB, type PreparedProfile } from './profile';
+import { LIMITER_PROCESSOR, limiterAvailable } from './limiter';
 
 const db2lin = (db: number) => (db <= SILENT_DB + 1 ? 0 : Math.pow(10, db / 20));
 const TAU_PARAM = 0.05; // smoothing of control-rate gains [s]
 const VOICE_IDLE_S = 1.2; // a layer silent this long releases its voices
 
-/** Python render_launch.soft_limit as a static curve (input range +-4 = +12 dBFS through a 1/4 pre-gain) */
-export function softLimitCurve(n = 8193, thrDb = -1, range = 4): Float32Array {
-  const t = Math.pow(10, thrDb / 20), k = 0.8 * t;
+/** static clip at the ceiling after the look-ahead limiter (input range +-4 = +12 dBFS through a 1/4 pre-gain).
+ *  The compressor already holds peaks near the ceiling; this only catches its overshoot and makeup gain. */
+export function ceilingClipCurve(n = 8193, ceilingDb = -1, range = 4): Float32Array {
+  const t = Math.pow(10, ceilingDb / 20);
   const c = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const x = (i / (n - 1)) * 2 * range - range;
-    const a = Math.abs(x);
-    c[i] = a > k ? Math.sign(x) * (k + (t - k) * Math.tanh((a - k) / (t - k))) : x;
+    c[i] = Math.max(-t, Math.min(t, x));
   }
   return c;
+}
+
+/** profile level_mapping.limiter as a DynamicsCompressorNode (the spec's compressor has ~6 ms look-ahead built in) */
+export function limiterSettings(prep: PreparedProfile) {
+  const lim = prep.raw.level_mapping.limiter ?? { ceiling_dbfs: -1, lookahead_ms: 5, release_ms: 150 };
+  return { threshold: lim.ceiling_dbfs, knee: 0, ratio: 20, attack: lim.lookahead_ms / 1000, release: lim.release_ms / 1000, ceiling: lim.ceiling_dbfs };
 }
 
 class Tracker {
@@ -178,6 +185,9 @@ export class AudioEngine {
   private tr = new Tracker();
   private pre: GainNode;
   private shaper: WaveShaperNode;
+  private limiter: AudioNode;
+  /** 'worklet' = exact look-ahead limiter (profile recipe); 'compressor' = DynamicsCompressor fallback */
+  readonly limiterKind: 'worklet' | 'compressor';
   private mix: GainNode;
   private airborne: GainNode;
   private jetEq: EqChain;
@@ -195,15 +205,32 @@ export class AudioEngine {
     this.master = tr.add(ctx.createGain());
     this.master.gain.value = 1;
     this.shaper = tr.add(ctx.createWaveShaper());
-    this.shaper.curve = softLimitCurve() as Float32Array<ArrayBuffer>;
+    const ls = limiterSettings(prep);
+    this.shaper.curve = ceilingClipCurve(8193, ls.ceiling) as Float32Array<ArrayBuffer>;
     this.shaper.oversample = 'none';
+    if (limiterAvailable(ctx)) {
+      this.limiter = tr.add(new AudioWorkletNode(ctx, LIMITER_PROCESSOR, {
+        numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit',
+        processorOptions: { ceilingDb: ls.ceiling, lookaheadMs: ls.attack * 1000, releaseMs: ls.release * 1000 },
+      }));
+      this.limiterKind = 'worklet';
+    } else {
+      const c = tr.add(ctx.createDynamicsCompressor());
+      c.threshold.value = ls.threshold;
+      c.knee.value = ls.knee;
+      c.ratio.value = ls.ratio;
+      c.attack.value = ls.attack;
+      c.release.value = ls.release;
+      this.limiter = c;
+      this.limiterKind = 'compressor';
+    }
     this.pre = tr.add(ctx.createGain());
     this.pre.gain.value = 0.25;
     this.mix = tr.add(ctx.createGain());
     this.airborne = tr.add(ctx.createGain());
     this.airborne.gain.value = 1;
     this.airborne.connect(this.mix);
-    this.mix.connect(this.pre).connect(this.shaper).connect(this.master).connect(destination ?? ctx.destination);
+    this.mix.connect(this.limiter).connect(this.pre).connect(this.shaper).connect(this.master).connect(destination ?? ctx.destination);
     this.jetEq = new EqChain(ctx, prep.oct, tr, prep.A_jet);
     this.crkEq = new EqChain(ctx, prep.oct, tr, prep.assets.crackle.octave_db);
     this.padEq = new EqChain(ctx, prep.oct, tr, prep.A_pad);
@@ -326,7 +353,7 @@ export class AudioEngine {
 
   dispose() {
     this.stopAll();
-    const all: AudioNode[] = [this.master, this.shaper, this.pre, this.mix, this.airborne, ...this.jetEq.nodes(), ...this.crkEq.nodes(), ...this.padEq.nodes()];
+    const all: AudioNode[] = [this.master, this.shaper, this.limiter, this.pre, this.mix, this.airborne, ...this.jetEq.nodes(), ...this.crkEq.nodes(), ...this.padEq.nodes()];
     for (const L of LAYERS) all.push(this.layers[L].out);
     this.tr.drop(...all);
   }

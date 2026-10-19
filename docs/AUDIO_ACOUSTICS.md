@@ -155,20 +155,29 @@ Other measured facts:
 ## 6. Crackle (the hardest part, and the least certain)
 
 The waveform's **energetic part (< 2 kHz) is steepened** with a circular Earnshaw/Burgers (Pestorius-style)
-advection, with a thermo-viscous low-pass applied at every step. The shock train's HF content (above 400 Hz, rise-time
-roll-off at 5 kHz, softly limited at 1.4σ) forms the `crackle` layer. The shocks sit on the jet's own large
-compressions, because they come from the same random realisation. The layer adds burst intermittency (0.2-3 Hz,
-σ = 0.3): its event-interval CV is about 1.4-2, against a measured value of about 2.
+advection, with a thermo-viscous low-pass applied at every step. The shock train's HF content (above 300 Hz, rise-time
+roll-off at 5 kHz) is then **gated to its strongest fronts** [ARTISTIC, 2026-10-19 revision, see section 12]:
+
+- the fronts are local maxima of ds/dt at least 4 ms apart;
+- the threshold keeps a mean of 18 fronts/s (IMAP Blast-2 at its peak: 22 events/s above 5σ);
+- each front opens a 0.4 ms lead-in / 4 ms exponential-decay gate scaled by `(front/threshold)^0.5`, capped at 3;
+- 10 % of the ungated shock HF stays between bangs as "fizz".
+
+The shocks sit on the jet's own large compressions, because they come from the same random realisation, so the
+bangs cluster in loud passages. The layer adds burst intermittency (0.2-3 Hz, σ = 0.3). Selected-front interval
+CV is 1.6, and the asset's detected-bang CV is about 1.9 (measured on real launches: about 2; a periodic
+"machine gun" would be below 0.3).
 
 At run time [ROM]:
 
 - Source term: `w_c = smoothstep((Mc−1.5)/2)·√(pa/p0)`, with `Mc = 0.65U/a`.
 - Mach-wave directivity: `w_dir = exp(−((θ−65°)/25°)²)`.
 - Distance growth (nonlinear steepening): `g_nl = 1 + 4·min(1, log₂(1+ln(r/x_t))/2.5)`.
-- Layer amplitude: `w = clamp(w_c · 0.5 · w_dir · g_nl, 0, 4)`, a linear factor on the jet EQ gain.
+- Layer amplitude: `w = clamp(w_c · 1.5 · w_dir · g_nl, 0, 6)`, a linear factor on the jet EQ gain. This is ARTISTIC (section 12). The measurement-tuned values were 0.5 and 4.
 - Absorption: the crackle layer is absorbed as if each band f were at `250·(f/250)^0.2` Hz, over the first 20 km of the path (weak-shock HF regeneration).
 
-The constants were tuned against the measured dSk and HF levels (section 8).
+The constants were first tuned against the measured dSk and HF levels (section 8). Since the 2026-10-19 revision the
+crackle is deliberately stronger than the recordings indicate (section 12).
 
 ## 7. Layers, mappings and runtime rules
 
@@ -180,14 +189,23 @@ The constants were tuned against the measured dSk and HF levels (section 8).
 | `pad_interaction` | yes | 12 Hz-10 kHz | Deflector/trench roar plus water/steam texture | pad EQ × `w_pad = exp(−h/(10De))`; jet term × (1 − 0.5 w_pad) |
 | `onboard_structure` | yes | 6 Hz-1.2 kHz | Structure-borne: GEVS shape → panel velocity, with modes | `20log(F/F_ref)` + reference level |
 | `aero_buffet` | yes | 4 Hz-2 kHz | Boundary layer and transonic buffet | `20log(w_aero)` + reference level |
-| `ignition` | one-shot | | Igniter tick, nine staggered engine light-ups (crackly swells, not a bang), IOP pulse (0.8 s Gaussian-derivative plus 16 Hz component) | Jet EQ at liftoff − 2 dB, placed at IGNITION + pad delay |
+| `ignition` | one-shot | | Igniter tick and nine staggered engine light-ups (crackly swells, not a bang) | Jet EQ at liftoff − 2 dB, placed at IGNITION + pad delay |
+| `ignition_overpressure` | one-shot | | IOP low thump: Friedlander-type compression (2 ms rise, 0.12 s positive phase), the measured ~0.8 s period and 16 Hz components, LP 180 Hz, three pad reflections. Its front is 0.1 s into the file | Scalar gain `oa(D_jet,liftoff) + 6 dB − rms_main_dbfs`; file starts at IGNITION + `offset_s` (0.8 s) + pad delay |
 | `meco_tail` | one-shot | | Thrust tail-off with a falling spectrum, then plume-collapse rumble | Jet EQ just before MECO, delayed |
 | `stage_sep_structural` | one-shot | | Muffled structural clunk and ring-down (onboard/cabin only) | Reference level |
 
 **EQ rule** (all groups): `EQ_dB[b] = D[b] − A_group[b]`.
 
 - `A_group` is the asset band level from the profile, power-summed over the group's layers.
-- `D` is the digital target: `D[b] = Lp[b] − Lp_OA + (−18 dBFS) + k·(Lp_OA − Lp_max_preset)`. Use k = 1 for physical levels, 0.6 for games.
+- `D` is the digital target: `D[b] = Lp[b] − Lp_OA + (−9 dBFS) + k·(Lp_OA − Lp_max_preset)`. Use k = 1 for physical levels, 0.5 for games (ARTISTIC; it was −18 dBFS and 0.6 before section 12).
+- **Master limiter** (profile `level_mapping.limiter`, ARTISTIC): feed-forward look-ahead peak limiter with a −1 dBFS ceiling, 5 ms look-ahead and 150 ms release. Recipe (both runtimes):
+  1. `GRreq[n] = max(0, 20·log10|x[n]| − ceiling)`
+  2. `hold[n] = max(GRreq[n .. n+L])`, with `L = 5 ms`
+  3. `GRr[n] = max(hold[n], GRr[n−1]·exp(−1/(0.15 s·fs)))`
+  4. `GR[n] = mean(GRr[n−L+1 .. n])`, never below `GRreq[n]`
+  5. `y[n] = x[n]·10^(−GR/20)`, clipped to the ceiling
+
+  In real time, compute GR on the input and apply it to the input delayed by L. Python: `render_launch.lookahead_limit`. Browser: an AudioWorklet (`frontend/src/audio/limiter.ts`), unit-tested to match the offline recipe within 1e-5.
 - Runtimes may use 11 octave bands; the reference renderer uses 1/3-octave bands from 6.3 Hz to 16 kHz with STFT gains.
 
 **Anti-repetition** (ARTISTIC): each loop plays as two voices, offset by 0.618 of its length, with an equal-power
@@ -323,7 +341,7 @@ rumble_lf A/B ─ xfade ─ layer gain ┐
 jet_mix   A/B ─ xfade ─ layer gain ┴─ jet EQ ─────┐
 crackle   A/B ─ xfade ─ layer gain ── crackle EQ ─┼─ airborne (warp gain) ─┐
 pad_int.  A/B ─ xfade ─ layer gain ── pad EQ ─────┘                        │
-onboard_structure A/B ─ xfade ─ level ─────────────────────────────────────┼─ mix ─ ¼ ─ WaveShaper (soft limit) ─ master ─ out
+onboard_structure A/B ─ xfade ─ level ─────────────────────────────────────┼─ mix ─ look-ahead limiter (AudioWorklet) ─ ¼ ─ ceiling clip ─ master ─ out
 aero_buffet       A/B ─ xfade ─ level ─────────────────────────────────────┤
 one-shots ─ own static EQ chain ─ airborne (ignition, MECO tail) or mix (structural)
 ```
@@ -346,7 +364,7 @@ restart the count returns to the idle 50 (checked in Chrome).
   `read_loop_ar`. Here τ is the group's emission time and τ0 the first history sample; the cross-fade phase φ
   uses the same τ. A replay or a seek therefore reproduces the same textures. On a discontinuity the voices
   restart at the new positions with a 20 ms cross-fade.
-- **Levels**: `D = Lp − Lp_OA − 18 + k(Lp_OA − Lp_max)` with `k = k_default = 1`. Pad, Tracker and Aerial take
+- **Levels**: `D = Lp − Lp_OA + target_peak_dbfs (−9) + k(Lp_OA − Lp_max)` with `k = k_default = 1`. Pad, Tracker and Aerial take
   `Lp_max` from their presets (150, 135 and 135 dB). Onboard and chase have no preset, so they use the model at a
   synthetic full-thrust liftoff state: 145.69 dB onboard (the Python render gives 145.71 dB), and r = 30 m,
   θ = 100° for Engines. Chase (Engines, Free) is capped at that maximum.
@@ -362,6 +380,7 @@ restart the count returns to the idle 50 (checked in Chrome).
   dips (12 ms), the new listener's EQ, voices and one-shots are set underneath, and the mix returns 70 ms later.
 - **One-shots**: planned per (event, listener):
   - Ignition at `IGNITION + r_pad/c` (ground) with the liftoff jet EQ − 2 dB.
+  - Ignition overpressure at `IGNITION + offset_s + r_pad/c`, with a flat gain `oa(D_liftoff) + 6 − rms_main_dbfs` (cabin: minus the mass-law TL).
   - MECO tail at `MECO + r(t_MECO − 0.1 s)/c` with the jet EQ just before MECO.
   - Onboard: the external tail × w_air (dropped when inaudible) plus the structural tail (ref − 6 dB − 0.3·TL).
   - The stage-separation clunk plays onboard only.
@@ -422,15 +441,21 @@ render. `python tools/audio/compare_browser.py` then compares the result with
 
 | Render | Envelope diff (1 s, >20 Hz): mean / median abs / p95 | Octave bands per window, mean abs diff | Onset |
 |---|---|---|---|
-| Pad 405 m | −0.21 / 0.27 / 1.67 dB (r = 0.999) | 0.40-0.79 dB (max 2.6 dB, at 250 Hz during the crackle peak) | −1.50 s in both |
-| 5 km NW | +0.11 / 1.43 / 5.05 dB (r = 0.977) | 0.36-0.45 dB up to T+150 s; 1.7 dB in the late tail | 11.50 s in both |
-| Onboard | +0.05 / 0.05 / 0.13 dB (r = 1.000) | 0.06-0.61 dB | −2.50 s in both |
+| Pad 405 m | −0.49 / 0.45 / 3.76 dB (r = 0.993) | 0.27-0.57 dB (max 3.1 dB); 1.4 dB in the late tail | −1.50 s in both |
+| 5 km NW | +0.28 / 1.54 / 5.70 dB (r = 0.974) | 0.24-0.64 dB up to T+150 s; 1.7 dB in the late tail | 11.50 s in both |
+| Onboard | +0.06 / 0.05 / 0.20 dB (r = 1.000) | 0.06-0.50 dB | −2.50 s in both |
+
+These numbers are after the 2026-10-19 revision: louder mapping, crackle ×3 and the AudioWorklet limiter in both
+renders. With the old static soft clip in the browser, the loud windows were 2-3.5 dB hotter than Python. The exact
+worklet limiter brought them back.
 
 - Ignition arrival matches Python to within 2 ms at 405 m, 5 km and 20 km. MECO-tail arrival matches to within
   0.3 s on a 441 s delay.
-- Crackle dSk per window is 80-85 % of the Python value (15.8 vs 18.6 at the pad, 13.5 vs 16.3 at 5 km). The
-  octave EQ cannot reproduce the 1/3-octave detail of the crackle undo-absorption.
-- Unit tests (`tests/audio.test.ts`, 27 tests) check the following:
+- Crackle dSk per window is 85-97 % of the Python value (pad 16.4 / 22.3 / 36.0 vs 18.0 / 23.0 / 37.8; 5 km 27.7 /
+  18.5 / 29.6 vs 31.3 / 21.8 / 33.5). The octave EQ cannot reproduce the 1/3-octave detail of the crackle
+  undo-absorption.
+- Unit tests (`tests/audio.test.ts`, 30 tests) check the following. The last three were added in the revision:
+  the IOP plan and its gain, the limiter settings, and AudioWorklet processor == offline recipe.
   - the band SPL against `tools/audio/export_runtime_fixture.py`: within 0.02 dB in every octave band, over
     35 state × listener cases;
   - delays (within 0.1 ms) and the reception → emission map;
@@ -451,6 +476,59 @@ render. `python tools/audio/compare_browser.py` then compares the result with
 - The runtime uses octave resolution (11 bands), not 1/3 octave. Extreme absorption cliffs are fitted where they
   are audible (within 50 dB of the loudest band) and only bounded below that.
 - For the attached cameras (onboard, chase), the parameters use history frames up to 0.1 s old.
-- The profile's limiter has attack and release times; the runtime uses the reference renderer's static soft
-  clip instead.
+- Limiter: the AudioWorklet runs the profile's look-ahead recipe exactly, with 5 ms of extra output latency. If
+  AudioWorklet is unavailable (very old browsers), `AudioEngine` falls back to a `DynamicsCompressorNode`
+  (threshold −1 dB, knee 0, ratio 20, attack 5 ms, release 150 ms; the spec includes about 6 ms of look-ahead)
+  followed by a static clip at the ceiling. That fallback is up to about 3 dB louder in limited passages.
 - Mobile CPU has not been measured on a real device. The per-tick cost and node count above are the budget.
+
+## 12. Listening-feedback revision (2026-10-19): ARTISTIC changes
+
+The user listened to the first renders and reported that they were "quite quiet". They also asked for the loud
+banging/popping heard at real launches, "like a large bullet". That is the crackle (Mach-wave shocks); it is not a
+sonic boom, since ascent booms land far downrange. Every change below is tagged ARTISTIC in the profile, with its
+rationale. All of them are made at the source of truth (`make_profile.py`, `synth_layers.py`), never by hand-editing
+the JSON.
+
+| Constant | Before | After | Where |
+|---|---|---|---|
+| `level_mapping.target_peak_dbfs` (RMS at the loudest moment) | −18 | **−9** | profile |
+| `level_mapping.k_game` | 0.6 | **0.5** | profile |
+| Master limiter | static tanh soft clip at −1 dBFS | **look-ahead limiter: ceiling −1 dBFS, look-ahead 5 ms, release 150 ms** (recipe in section 7) | profile `level_mapping.limiter`; `render_launch.lookahead_limit`; `frontend/src/audio/limiter.ts` |
+| `crackle.reference_weight` / `max_weight` | 0.5 / 4 | **1.5 / 6** | profile |
+| Crackle asset | dense shock HF, soft-limited at 1.4σ | sparse, strong, sharp-fronted bangs: 18 fronts/s mean, 4 ms gates, amplitude (front/thr)^0.5 capped at 3, 10 % fizz | `synth_layers.py` |
+| `pad_interaction.ignition_overpressure.level_db_re_full_thrust_jet` | 0 (inside the ignition file) | **+6**, as a separate `ignition_overpressure` one-shot (low thump) | profile + assets |
+
+**Results** (`data/audio/validation/validation_metrics.json`). Loudness is ITU-R BS.1770-4 (`dsp.lufs_integrated`).
+
+| Render | Peak dBFS | RMS dBFS (whole file) | Max 1-s RMS dBFS | Integrated LUFS (before → after) | Max momentary LUFS |
+|---|---|---|---|---|---|
+| Pad 405 m | −1.0 | −25.2 | −11.7 | −25.7 → **−19.5** | −13.0 |
+| 5 km | −1.0 | −20.6 | −10.6 | −26.0 → **−19.6** | −13.2 |
+| 20 km | −1.0 | −16.0 | −8.0 | −28.8 → **−20.8** | −14.6 |
+| Onboard | −1.0 | −20.8 | −10.8 | −23.0 → **−21.9** | −11.0 |
+| Cabin | −1.0 | −16.0 | −8.9 | −18.9 → **−18.9** | −14.3 |
+
+Onboard and cabin use their own reference levels (`onboard.digital_reference_levels_dbfs`), so their loudness barely
+changes.
+
+**Crackle (pad / 5 km):**
+
+- dSk went from 1.1-22 / 3.4-19 to **17.6-44 / 22-55**.
+- The new detector `dsp.bang_stats` (>1 kHz, 2 ms envelope, ≥ 12 dB above the 0.5 s median, ≥ 10 ms apart) finds 9-16 / 17-29 **distinct bangs per second**.
+- Bang prominence is 15-20 / 20-25 dB, and the interval CV is 0.9-2.4 / 0.9-1.5. The timing is random, with no machine-gun rhythm; a periodic train would give a CV below 0.3.
+- At 20 km the bangs survive at 19-30/s with ~22-25 dB prominence (dSk 0.8-6).
+
+**This deliberately exceeds the measurements.** The unclipped near-pad mic gave dSk 1-3, and ~6 km gave 3-8. The
+crackle is now an artistic emphasis, not a reproduction of the recordings.
+
+**IOP.** In the pad render, the 1.2 s window that holds the thump has a < 120 Hz RMS of −13.9 dBFS, against −21.6 dBFS
+in the following second. Its peaks are caught by the limiter.
+
+**For the Unreal runtime**, mirror exactly:
+
+- target_peak_dbfs −9; k_game 0.5
+- crackle reference_weight 1.5, max_weight 6
+- IOP level +6 dB over oa(D_jet at liftoff), as a scalar gain on `ignition_overpressure.wav` (`rms_main_dbfs` in the manifest), starting `offset_s` = 0.8 s after IGNITION plus the pad→listener delay
+- limiter: ceiling −1 dBFS, look-ahead 5 ms, release 150 ms, with the 5-step recipe in section 7
+

@@ -341,3 +341,60 @@ describe('shelf-cascade EQ', () => {
     expect(eq.lpHz).toBe(0);
   });
 });
+
+describe('ignition overpressure and limiter (listening-feedback revision)', () => {
+  it('IGNITION also plans the IOP thump: offset after ignition, flat gain = oa(D_liftoff) + level - main RMS', () => {
+    const m = mixerWithRing(ground(LIS.pad), -2.9);
+    const plans = m.planOneShots({ name: 'IGNITION', t: -3 });
+    const ign = plans.find((p) => p.asset === 'ignition')!;
+    const iop = plans.find((p) => p.asset === 'ignition_overpressure')!;
+    expect(iop).toBeDefined();
+    const meta = prep.assets.ignition_overpressure;
+    expect(iop.tArrive - ign.tArrive).toBeCloseTo(meta.offset_s!, 6);
+    for (let b = 1; b < NB; b++) expect(iop.eqDb[b]).toBeCloseTo(iop.eqDb[0], 9);
+    // the thump sits level_db_re_full_thrust_jet above the jet's overall digital level at liftoff
+    const lvl = rawProfile.pad_interaction.ignition_overpressure!.level_db_re_full_thrust_jet;
+    expect(lvl).toBe(6);
+    const ignOaFromIgnEq = 10 * Math.log10(ign.eqDb.reduce((s, v, b) => s + Math.pow(10, (v + 2 + prep.A_jet[b]) / 10), 0));
+    expect(iop.eqDb[0] + meta.rms_main_dbfs! - lvl).toBeCloseTo(ignOaFromIgnEq, 6);
+  });
+  it('limiter settings come from the profile (ceiling -1 dBFS, 5 ms look-ahead, 150 ms release)', async () => {
+    const { limiterSettings } = await import('../src/audio/AudioEngine');
+    const s = limiterSettings(prep);
+    expect(s.threshold).toBe(-1);
+    expect(s.attack).toBeCloseTo(0.005, 9);
+    expect(s.release).toBeCloseTo(0.15, 9);
+    expect(rawProfile.level_mapping.target_peak_dbfs).toBe(-9);
+    expect(rawProfile.level_mapping.k_game).toBe(0.5);
+  });
+});
+
+describe('look-ahead limiter worklet', () => {
+  it('the AudioWorklet processor equals the offline recipe, delayed by the look-ahead', async () => {
+    const { LIMITER_SOURCE, lookaheadLimitOffline } = await import('../src/audio/limiter');
+    const fs = 48000;
+    let Proc: (new (o: unknown) => { process: (i: Float32Array[][], o: Float32Array[][]) => boolean }) | null = null;
+    class AudioWorkletProcessor {}
+    const register = (_n: string, c: typeof Proc) => { Proc = c; };
+    new Function('AudioWorkletProcessor', 'registerProcessor', 'sampleRate', LIMITER_SOURCE)(AudioWorkletProcessor, register, fs);
+    const p = { ceilingDb: -1, lookaheadMs: 5, releaseMs: 150 };
+    const proc = new Proc!({ processorOptions: p });
+    const n = 128 * 200;
+    const x = new Float32Array(n);
+    let s = 7;
+    for (let i = 0; i < n; i++) { s = (s * 16807) % 2147483647; x[i] = 0.3 * ((s / 2147483647) * 2 - 1); }
+    for (const k of [3000, 3050, 9000, 15000]) x[k] = 3.5; // +11 dBFS bangs
+    const y = new Float32Array(n);
+    for (let b = 0; b < n; b += 128) {
+      const out = [[new Float32Array(128)]];
+      proc.process([[x.subarray(b, b + 128)]], out);
+      y.set(out[0][0], b);
+    }
+    const ref = lookaheadLimitOffline(x, fs, p);
+    const L = Math.round((p.lookaheadMs * fs) / 1000);
+    let maxErr = 0, peak = 0;
+    for (let i = L; i < n; i++) { maxErr = Math.max(maxErr, Math.abs(y[i] - ref[i - L])); peak = Math.max(peak, Math.abs(y[i])); }
+    expect(maxErr).toBeLessThan(1e-5);
+    expect(peak).toBeLessThanOrEqual(Math.pow(10, -1 / 20) + 1e-6);
+  });
+});

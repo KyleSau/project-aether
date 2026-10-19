@@ -1,5 +1,5 @@
 Project Aether static site
-Total: 7.82 MB + 14.24 MB WAV audio fallback in 46 files
+Total: 7.86 MB + 14.47 MB WAV audio fallback in 48 files
 
    3663.9 KB  models/rocket.glb
    2250.0 KB  data/audio/assets/aero_buffet.wav
@@ -10,32 +10,34 @@ Total: 7.82 MB + 14.24 MB WAV audio fallback in 46 files
    2250.0 KB  data/audio/assets/rumble_lf.wav
     873.5 KB  assets/three.webgpu-D7JXzpMD.js
     562.5 KB  data/audio/assets/ignition.wav
-    461.5 KB  data/audio/assets/crackle.ogg
-    388.2 KB  assets/index-Diw8iE6k.js
+    470.5 KB  data/audio/assets/crackle.ogg
+    392.3 KB  assets/index-BxFuoGEW.js
     353.5 KB  data/reference_trajectory.json
     281.3 KB  data/audio/assets/meco_tail.wav
-    255.3 KB  data/audio/assets/rumble_lf.ogg
-    253.8 KB  data/audio/assets/jet_mix.ogg
+    252.7 KB  data/audio/assets/jet_mix.ogg
     250.1 KB  data/audio/assets/pad_interaction.ogg
     249.1 KB  data/audio/assets/aero_buffet.ogg
+    246.5 KB  data/audio/assets/rumble_lf.ogg
     243.9 KB  data/audio/assets/onboard_structure.ogg
+    234.4 KB  data/audio/assets/ignition_overpressure.wav
     234.4 KB  data/audio/assets/stage_sep_structural.wav
     159.9 KB  assets/aether_wasm_bg-DOT2Uvo0.wasm
     121.3 KB  tex/sparse_grass_nor_gl.jpg
      84.9 KB  data/plume_table.json
      75.4 KB  tex/concrete_floor_02_diff.jpg
      74.9 KB  tex/asphalt_02_nor_gl.jpg
-     72.4 KB  data/audio/assets/ignition.ogg
+     71.8 KB  data/audio/assets/ignition.ogg
      70.8 KB  tex/asphalt_02_diff.jpg
      62.6 KB  tex/asphalt_02_rough.jpg
      46.4 KB  tex/sparse_grass_diff.jpg
-     39.8 KB  data/audio/acoustic_profile.json
+     43.1 KB  data/audio/acoustic_profile.json
      39.1 KB  tex/concrete_floor_02_nor_gl.jpg
+     36.9 KB  data/audio/assets/ignition_overpressure.ogg
      33.3 KB  data/audio/assets/meco_tail.ogg
      30.3 KB  tex/concrete_floor_02_rough.jpg
      23.3 KB  tex/sparse_grass_rough.jpg
      22.4 KB  data/audio/assets/stage_sep_structural.ogg
-     14.3 KB  data/audio/assets/manifest.json
+     15.5 KB  data/audio/assets/manifest.json
      10.3 KB  data/thermo.json
       7.1 KB  data/thermal.json
       6.3 KB  assets/index-VXRYUNVX.css
@@ -45,5 +47,5 @@ Total: 7.82 MB + 14.24 MB WAV audio fallback in 46 files
       2.1 KB  assets/Overlays-BE_-nWZc.js
       1.0 KB  data/benchmarks_physics.json
       0.8 KB  index.html
-      0.3 KB  assets/MotionBlur-DH-L_z5S.js
+      0.3 KB  assets/MotionBlur-BEgwX8_o.js
       0.1 KB  tex/LICENSE.txt

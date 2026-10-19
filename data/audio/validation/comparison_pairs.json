@@ -3,114 +3,114 @@
   "pair": "Near pad",
   "render": "pad/pad_full_thrust",
   "reference": "imap/0/receding",
-  "render_hf_slope": -7.3440913945545905,
+  "render_hf_slope": -6.197041717069334,
   "ref_hf_slope": -6.9415951752165945,
-  "render_dSk": 1.1350184733857918,
+  "render_dSk": 17.559010628032926,
   "ref_dSk": 1.0056160047348466,
   "render_mod": [
-   0.20952511914908087,
-   0.21063593539772868
+   0.15749153052352344,
+   0.21759705887504555
   ],
   "ref_mod": [
    0.515108824327591,
    0.5116661723523885
   ],
-  "render_crackle_cv": 1.1143639697349614,
+  "render_crackle_cv": 1.3151378199623722,
   "ref_crackle_cv": 3.9446332349223128
  },
  {
   "pair": "Near pad (early ascent)",
   "render": "pad/early_ascent",
   "reference": "imap/0/decay",
-  "render_hf_slope": -7.8413754757447505,
+  "render_hf_slope": -6.017088034060663,
   "ref_hf_slope": -2.3783313920316407,
-  "render_dSk": 21.978664431033785,
+  "render_dSk": 43.92394484727658,
   "ref_dSk": -0.0027453745622182985,
   "render_mod": [
-   0.2487699973135925,
-   0.34114329995030657
+   0.2813563901181526,
+   0.3437150116094649
   ],
   "ref_mod": [
    0.17287830859468453,
    0.19548123682164312
   ],
-  "render_crackle_cv": 2.7047757616871504,
+  "render_crackle_cv": 3.4987058478318653,
   "ref_crackle_cv": 1.6925251010333255
  },
  {
   "pair": "~5 km",
   "render": "obs5km/early_ascent",
   "reference": "imap/1/peak_level",
-  "render_hf_slope": -8.664260460586924,
+  "render_hf_slope": -7.091053238660106,
   "ref_hf_slope": -6.525756410477953,
-  "render_dSk": 8.25246657686801,
+  "render_dSk": 22.252252475992425,
   "ref_dSk": 7.632232652992833,
   "render_mod": [
-   0.2073162872710326,
-   0.26458697400522446
+   0.2488309900425119,
+   0.28082926514339696
   ],
   "ref_mod": [
    0.1308830266470852,
    0.22800761350494844
   ],
-  "render_crackle_cv": 1.5963491315489962,
+  "render_crackle_cv": 1.58635857064292,
   "ref_crackle_cv": 1.9818511878541605
  },
  {
   "pair": "~5 km later",
   "render": "obs5km/mid_ascent",
   "reference": "imap/1/ascent_decay",
-  "render_hf_slope": -8.905559570323618,
+  "render_hf_slope": -7.497687845958304,
   "ref_hf_slope": -6.965011932593242,
-  "render_dSk": 19.42709607924869,
+  "render_dSk": 54.556508561117035,
   "ref_dSk": 3.104176562385402,
   "render_mod": [
-   0.30821242409802385,
-   0.3750040488924606
+   0.3143719924215198,
+   0.3821003700465703
   ],
   "ref_mod": [
    0.11536142977165526,
    0.34086799621665076
   ],
-  "render_crackle_cv": 5.062535327968049,
+  "render_crackle_cv": 2.596097758158115,
   "ref_crackle_cv": 2.295024238401967
  },
  {
   "pair": "~20 km",
   "render": "obs20km/mid_ascent",
   "reference": "atlas_sdo/0/ascent",
-  "render_hf_slope": -18.043858443787457,
+  "render_hf_slope": -16.155611581884397,
   "ref_hf_slope": -10.5762838238351,
-  "render_dSk": 0.6088232825769098,
+  "render_dSk": 4.553667379346431,
   "ref_dSk": 7.678510675420415,
   "render_mod": [
-   0.28941928640180453,
-   0.3832761865551605
+   0.25369245197505497,
+   0.36059097625123754
   ],
   "ref_mod": [
    0.10870024435305167,
    0.2128854524420782
   ],
-  "render_crackle_cv": 2.1596968081467045,
+  "render_crackle_cv": 2.4389779552373834,
   "ref_crackle_cv": 1.9134103195053143
  },
  {
   "pair": "~20 km vs beach",
   "render": "obs20km/early_ascent",
   "reference": "crew12/0/ascent_decay_A",
-  "render_hf_slope": -12.737044204050996,
+  "render_hf_slope": -10.865382420412796,
   "ref_hf_slope": -16.953924485101176,
-  "render_dSk": 0.5094084287816403,
+  "render_dSk": 6.167343039181913,
   "ref_dSk": 0.03772858196048421,
   "render_mod": [
-   0.21832165205667597,
-   0.2936484549337018
+   0.22707848862650412,
+   0.3112205667576947
   ],
   "ref_mod": [
    0.09261422028780215,
    0.19196289855862464
   ],
-  "render_crackle_cv": 2.642405739483296,
+  "render_crackle_cv": 1.5048782570929733,
   "ref_crackle_cv": 2.5920481737321563
  }
 ]

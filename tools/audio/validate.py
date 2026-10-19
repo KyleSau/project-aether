@@ -137,9 +137,18 @@ def main(render=True):
         evs = [(n, t) for n, t in evs if info["t0"] < t < info["t1"]]
         dsp.plot_panel(y, FS, f"render: {name} ({info['mode']}, pos {info['pos']})", os.path.join(FIG, f"val_render_{name}.png"),
                        t0=info["t0"], events=evs)
-        results[name] = dict(info={k: v for k, v in info.items() if k != "events"}, segments=segs,
+        lufs, mmax = dsp.lufs_integrated(y, FS)
+        loud = dict(peak_dbfs=round(float(20 * np.log10(np.abs(y).max() + 1e-12)), 2),
+                    rms_dbfs=round(float(10 * np.log10(np.mean(y * y) + 1e-20)), 2),
+                    max_rms_1s_dbfs=round(float(max(10 * np.log10(np.mean(y[i:i + FS] ** 2) + 1e-20) for i in range(0, len(y) - FS, FS // 2))), 2),
+                    lufs_integrated=round(lufs, 2), lufs_momentary_max=round(mmax, 2))
+        print(name, "loudness:", loud)
+        results[name] = dict(info={k: v for k, v in info.items() if k != "events"}, segments=segs, loudness=loud,
                              wav=os.path.relpath(wav, ROOT).replace("\\", "/"), ogg=f"docs/audio/launch_{name}.ogg",
                              bytes_ogg=os.path.getsize(os.path.join(OGGDIR, f"launch_{name}.ogg")))
+        del y, grid
+        import gc
+        gc.collect()
         print(name, "segments:", [(s["label"], round(s["deriv_skewness"], 2), round(s["hf_slope_db_per_oct"], 1)) for s in segs])
     # before: old Audio.ts proxy
     old = old_audio_ts_proxy()

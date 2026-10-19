@@ -16,7 +16,7 @@ Pipeline (ground listener):
   2. reception time t_r(tau) = tau + d(tau)/c(tau) (monotonic) is inverted per audio sample, and every loop is
      READ at its emission time tau(t_r): this variable delay line is the only Doppler (no extra pitch shift).
   3. layer EQ per STFT frame: EQ_dB[b] = D[b] - A_group[b] (digital target minus asset band level).
-  4. one-shots are placed at event time + delay with a static EQ; soft limiter only as a safety net.
+  4. one-shots are placed at event time + delay with a static EQ; a look-ahead peak limiter (profile) finishes the mix.
 """
 from __future__ import annotations
 
@@ -199,14 +199,37 @@ def tv_eq(x, frame_t, gains_db, nper=8192, hop=2048):
     return y[pad:pad + n]
 
 
-def soft_limit(x, thr_db=-1.0):
-    t = 10 ** (thr_db / 20)
+def lookahead_limit(x, ceiling_dbfs=-1.0, lookahead_ms=5.0, release_ms=150.0, fs=FS, return_gr=False):
+    """Feed-forward look-ahead peak limiter (profile level_mapping.limiter.recipe). Offline form: the gain computed
+    from x is applied to x itself, which equals the real-time form (gain on the input, applied to the input delayed
+    by L samples) shifted by L samples."""
+    from scipy.ndimage import maximum_filter1d
+    x = np.asarray(x, dtype=np.float64)
+    L = max(1, int(round(lookahead_ms * fs / 1000.0)))
     a = np.abs(x)
-    over = a > t * 0.8
-    y = x.copy()
-    k = t * 0.8
-    y[over] = np.sign(x[over]) * (k + (t - k) * np.tanh((a[over] - k) / (t - k)))
-    return y
+    gr_req = np.maximum(0.0, 20 * np.log10(np.maximum(a, 1e-12)) - ceiling_dbfs)
+    # look-ahead hold: max over [n, n+L]
+    gr_h = maximum_filter1d(gr_req, size=L + 1, origin=-(L // 2), mode="constant", cval=0.0)
+    # exponential release of the dB reduction (block-wise max-plus trick, exact)
+    dec = math.exp(-1.0 / (release_ms * fs / 1000.0))
+    gr_r = np.empty_like(gr_h)
+    prev = 0.0
+    B = 32768
+    for i0 in range(0, len(gr_h), B):
+        seg = gr_h[i0:i0 + B]
+        e = dec ** -(np.arange(len(seg)) + 1.0)
+        v = np.maximum.accumulate(np.maximum(seg * e, prev))
+        out = v / e
+        gr_r[i0:i0 + B] = out
+        prev = out[-1]
+    # attack: trailing moving average over L samples (linear ramp; >= gr_req at every peak)
+    c = np.concatenate([np.zeros(L), np.cumsum(np.concatenate([np.zeros(1), gr_r]))])
+    gr = (c[L + 1:] - c[1:-L]) / L
+    gr = np.maximum(gr, gr_req)  # numerical guard (the hold+average already guarantees this)
+    y = x * 10 ** (-gr / 20)
+    lim = 10 ** (ceiling_dbfs / 20)
+    y = np.clip(y, -lim, lim)
+    return (y, gr) if return_gr else y
 
 
 # ------------------------------------------------------------------ model on the emission grid
@@ -397,6 +420,19 @@ def render(listener="pad", pos=None, mode=None, t0=-6.0, t1=None, k=None, tel=No
         else:
             Dref = to_digital(grid["L_jet"][i_lo] + w_air_db[i_lo]) - A_jet
             place("ignition", ti, 0.0, Dref - (am.cabin_tl_db(F_C, 20.0) if mode == "cabin" else 0) - 2.0)
+        # ignition overpressure: separate one-shot, scalar gain = oa(D_jet at liftoff) + level - asset main RMS
+        if "ignition_overpressure" in lay:
+            iop = prof["pad_interaction"]["ignition_overpressure"]
+            meta = lay["ignition_overpressure"]["meta"]
+            if mode == "ground":
+                D_lo = to_digital(grid["L_jet"][i_lo])
+                d_iop = grid["delay_pad"][i_lo]
+            else:
+                D_lo = to_digital(grid["L_jet"][i_lo] + w_air_db[i_lo])
+                d_iop = 0.0
+            g_iop = float(oa(D_lo)) + iop["level_db_re_full_thrust_jet"] - meta["rms_main_dbfs"]
+            G_iop = np.full(len(F_C), g_iop) - (am.cabin_tl_db(F_C, 20.0) if mode == "cabin" else 0.0)
+            place("ignition_overpressure", ti + meta["offset_s"], d_iop, G_iop)
     if "MECO" in ev:
         tm = ev["MECO"]
         im = max(0, int(np.searchsorted(tau, tm)) - 2)
@@ -414,7 +450,7 @@ def render(listener="pad", pos=None, mode=None, t0=-6.0, t1=None, k=None, tel=No
         A_sp = asset_third_db(lay["stage_sep_structural"]["meta"])
         place("stage_sep_structural", ev["STAGE_SEP"], 0.0,
               prof["onboard"]["digital_reference_levels_dbfs"][mode]["stage_sep"] + (A_sp - oa(A_sp)) - A_sp)
-    y = soft_limit(y)
+    y = lookahead_limit(y, **{k: prof['level_mapping']['limiter'][k] for k in ('ceiling_dbfs', 'lookahead_ms', 'release_ms')})
     info = dict(listener=listener, mode=mode, pos=pos.tolist(), t0=t0, t1=t1, Lp_max_db=Lp_max, k=k,
                 events=events, oneshots=shots, peak_dbfs=float(20 * np.log10(np.abs(y).max() + 1e-12)))
     if out_path:

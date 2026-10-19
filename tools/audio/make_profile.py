@@ -278,8 +278,11 @@ def main():
             "note": "Crackle (shock content) needs supersonic convection of the large-scale structures (Ffowcs Williams et al. 1975; "
                     "Petitjean et al. 2006) - always satisfied by rocket plumes, so w_c is driven mainly by ambient density "
                     "(plume shear-layer intensity). See layer_gain_rule.",
-            "reference_weight": 0.5,
-            "max_weight": 4.0,
+            "reference_weight": 1.5,
+            "max_weight": 6.0,
+            "weight_rationale": "ARTISTIC (listening feedback: wants loud banging/popping 'like a large bullet'). Raised from "
+                                "0.5 / 4.0. The crackle asset was regenerated as sparse, strong, sharp-fronted shock events "
+                                "(see docs section 6); event timing stays non-periodic (inter-event CV ~1.5-2).",
             "nonlinear_growth": {"formula": "g_nl = 1 + max_gain * min(1, log2(1 + ln(max(r, x_t)/x_t)) / log2_saturation)",
                                  "max_gain": 4.0, "log2_saturation": 2.5, "tag": "ROM",
                                  "note": "Mathews et al. 2020 measured Falcon 9 SPL above the noise floor up to 10 kHz at 8.3 km and "
@@ -291,9 +294,9 @@ def main():
                                     "peak taken from the Falcon 9 OASPL peak (65 deg)"},
             "layer_gain_rule": "crackle amplitude w = clamp(w_c * reference_weight * w_dir * g_nl, 0, max_weight) (LINEAR) x the jet-group EQ gain, plus the "
                                "crackle absorption policy (propagation.atmospheric_absorption.crackle_band_policy). The crackle asset is "
-                               "normalised so that at amplitude 1 it carries the same >400 Hz energy as the linear jet. reference_weight 0.5 and the "
-                               "absorption exponent 0.2 were tuned (tools/audio/validate.py) so the pad render gives |dSk| 0.7-3 at "
-                               "ignition/liftoff (unclipped IMAP Blast-1: 1.0-2.8) and the 5 km render 1.5-10 (IMAP Blast-2 at ~6 km: 3.1-7.6). Play it sample-aligned with jet_mix when possible.",
+                               "normalised so that at amplitude 1 it carries the same >400 Hz energy as the linear jet. reference_weight 0.5 (with exponent 0.2) was the value tuned to the measured "
+                               "dSk (pad 1-3, ~6 km 3-8); 1.5 is the ARTISTIC value after listening feedback, so crackle is now deliberately "
+                               "stronger than the recordings suggest. Play it sample-aligned with jet_mix when possible.",
             "propagation_note": "No nonlinear propagation SOLVER: distance growth of shock content is represented by g_nl and the "
                                 "reduced crackle absorption (both ROM). Real waveform steepening over km is NOT simulated.",
             "targets": {"deriv_skewness_shock_formation": {"value": 5.0, "tag": "LITERATURE",
@@ -315,7 +318,16 @@ def main():
                 "tag": "MEASURED (shape) + ARTISTIC (amplitude)",
                 "source": "Mathews et al. 2020: IOP waveform period ~0.8 s, spectral peaks ~3 and 16 Hz at 8.3 km (Falcon 9). "
                           "Casiano 2009 (NTRS 20090032104): IOP from rapid exhaust acceleration during engine start.",
-                "level_db_re_full_thrust_jet": 0.0, "directivity": "strongest along the flame-trench exit (Gee et al. 2023 Artemis-I)"},
+                "level_db_re_full_thrust_jet": 6.0,
+                "asset": "ignition_overpressure (separate one-shot, emitted offset_s after IGNITION at the trench exit)",
+                "level_rule": "scalar gain: G_dB = oa(D_jet_liftoff) + level_db_re_full_thrust_jet - rms_main_dbfs (asset's RMS over "
+                              "its main 0.5 s), D_jet_liftoff = the jet group's digital target at a full-thrust liftoff state for "
+                              "this listener; cabin: minus the mass-law TL per band",
+                "level_rationale": "ARTISTIC (listening feedback): +6 dB over the full-thrust jet so the ignition overpressure reads as "
+                                   "a clear low thump. Shape: Friedlander-type compression (2 ms rise, ~0.12 s positive phase) "
+                                   "low-passed at 180 Hz + the measured ~0.8 s period and 16 Hz component (MEASURED, Mathews 2020) "
+                                   "+ three pad/terrain reflections (ARTISTIC).",
+                "directivity": "strongest along the flame-trench exit (Gee et al. 2023 Artemis-I)"},
         },
         # ---------------------------------------------------------------- onboard / cabin
         "onboard": {
@@ -343,10 +355,28 @@ def main():
             "tag": "ARTISTIC",
             "note": "Real launch levels span >80 dB across viewpoints; a microphone engineer sets gain per position. Each listener preset "
                     "has a fixed mic gain chosen from its predicted maximum SPL; levels then follow physics with an optional "
-                    "loudness compression k (1 = physical, 0.6 recommended for games).",
-            "dbfs": "RMS dBFS = target_peak_dbfs + k * (Lp - Lp_max_preset)  (target_peak_dbfs is the RMS level at the loudest moment; leaves ~15 dB crest headroom)",
-            "target_peak_dbfs": -18.0, "k_default": 1.0, "k_game": 0.6,
-            "safety_limiter": "soft limiter, threshold -1 dBFS, 5 ms attack, 200 ms release (never hard-clip)",
+                    "loudness compression k (1 = physical, 0.5 recommended for games).",
+            "dbfs": "RMS dBFS = target_peak_dbfs + k * (Lp - Lp_max_preset)  (target_peak_dbfs is the RMS level at the loudest moment)",
+            "target_peak_dbfs": -9.0, "k_default": 1.0, "k_game": 0.5,
+            "rationale": "ARTISTIC (2026-10-19 listening feedback: 'quite quiet'). -9 dBFS RMS at the loudest moment leaves ~8 dB "
+                         "for crest; crackle bangs and the IOP thump are allowed to hit the limiter (that is the intended "
+                         "'large bullet' punch). Previous values: -18 dBFS, k_game 0.6.",
+            "limiter": {
+                "tag": "ARTISTIC",
+                "type": "look-ahead peak limiter (feed-forward, brick-wall at the ceiling)",
+                "ceiling_dbfs": -1.0, "lookahead_ms": 5.0, "release_ms": 150.0,
+                "recipe": [
+                    "1. required gain reduction GRreq[n] = max(0, 20*log10(|x[n]|) - ceiling_dbfs)  (dB, >= 0)",
+                    "2. look-ahead hold: GRh[n] = max(GRreq[n .. n+L]),  L = round(lookahead_ms * fs / 1000)",
+                    "3. release: GRr[n] = max(GRh[n], GRr[n-1] * exp(-1 / (release_ms * fs / 1000)))  (exponential recovery of the dB reduction)",
+                    "4. attack smoothing: GR[n] = mean(GRr[n-L+1 .. n])  (linear ramp over the look-ahead; never below GRreq at the peak)",
+                    "5. y[n] = x[n] * 10^(-GR[n]/20); real time: compute GR on the input and apply it to the input delayed by L samples",
+                    "6. safety: clip |y| to the ceiling (a no-op except for float rounding)",
+                ],
+                "browser_realisation": "DynamicsCompressorNode (spec look-ahead ~6 ms) threshold -1 dB, knee 0, ratio 20, attack 5 ms, "
+                                       "release 150 ms, followed by a static clip at the ceiling (the node's automatic makeup "
+                                       "gain, about +0.6 dB at these settings, is absorbed by that clip)",
+            },
         },
         "anti_repetition": {
             "tag": "ARTISTIC (standard game-audio practice)",

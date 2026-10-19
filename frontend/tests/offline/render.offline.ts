@@ -7,9 +7,12 @@
 import { describe, it } from 'vitest';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { OfflineAudioContext } from 'node-web-audio-api';
+import { AudioWorkletNode as NodeAudioWorkletNode, OfflineAudioContext } from 'node-web-audio-api';
+// AudioEngine uses the global AudioWorkletNode constructor (as in browsers)
+(globalThis as unknown as { AudioWorkletNode: unknown }).AudioWorkletNode ??= NodeAudioWorkletNode;
 import { AudioEngine } from '../../src/audio/AudioEngine';
 import { loadAssets } from '../../src/audio/assets';
+import { loadLimiterWorklet } from '../../src/audio/limiter';
 import { listenerForCamera, type Listener } from '../../src/audio/listeners';
 import { AcousticMixer, OneShotScheduler, type OneShotPlan } from '../../src/audio/mixModel';
 import { cfg, DATA, loadReferenceTelemetry, prep, ROOT } from '../audioHelpers';
@@ -33,6 +36,8 @@ async function render(name: string, listener: Listener, t0: number, t1: number, 
   const ctx = new OfflineAudioContext(1, n, FS) as unknown as OfflineAudioContext & BaseAudioContext;
   const fetchBytes = async (p: string) => { const b = readFileSync(join(DATA, 'audio', p)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer; };
   const assets = await loadAssets(ctx, prep, fetchBytes, '', { preferOpus: false });
+  const workletOk = await loadLimiterWorklet(ctx); // Blob URL (node-web-audio-api rejects Windows file paths)
+  if (!workletOk) throw new Error('AudioWorklet limiter failed to load in node-web-audio-api');
   const eng = new AudioEngine(ctx, prep, assets.buffers);
   const mixer = new AcousticMixer(prep, cfg, listener);
   const lpMaxRuntime = mixer.LpMax;

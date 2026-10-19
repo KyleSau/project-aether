@@ -15,6 +15,10 @@ export interface AssetMeta {
   sync_group?: string;
   event?: string;
   emit_at?: string;
+  /** one-shots: seconds after the event at which the file starts (ignition_overpressure) */
+  offset_s?: number;
+  /** ignition_overpressure: RMS of the main 0.5 s (the level rule's reference) */
+  rms_main_dbfs?: number;
 }
 
 export interface ListenerPreset {
@@ -48,13 +52,16 @@ export interface AcousticProfile {
     nonlinear_growth: { max_gain: number; log2_saturation: number };
     directivity: { peak_deg: number; width_deg: number };
   };
-  pad_interaction: { level_db_re_jet: number };
+  pad_interaction: { level_db_re_jet: number; ignition_overpressure?: { level_db_re_full_thrust_jet: number } };
   onboard: {
     structure_borne: { thrust_ref_stage1_N: number };
     digital_reference_levels_dbfs: Record<'onboard' | 'cabin', { structure_at_stage1_full_thrust: number; aero_at_w_aero_1: number; stage_sep: number }>;
     cabin_transmission_loss: { m_s_kg_m2: number };
   };
-  level_mapping: { target_peak_dbfs: number; k_default: number; k_game: number };
+  level_mapping: {
+    target_peak_dbfs: number; k_default: number; k_game: number;
+    limiter?: { ceiling_dbfs: number; lookahead_ms: number; release_ms: number };
+  };
   anti_repetition: { voice_offset_fraction: number; crossfade_cycle_s: number };
   listeners: { aether: Record<string, ListenerPreset> };
   layers: AssetMeta[];

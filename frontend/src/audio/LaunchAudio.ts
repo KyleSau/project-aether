@@ -6,6 +6,7 @@ import { GROUND_Y } from '../engine/scene/Launchpad';
 import type { V3 } from './acoustics';
 import { AudioEngine, type EngineStats } from './AudioEngine';
 import { loadAssets, opusLikelySupported } from './assets';
+import { loadLimiterWorklet } from './limiter';
 import { listenerForCamera, type AetherCamera } from './listeners';
 import { AcousticMixer, OneShotScheduler, type OneShotPlan } from './mixModel';
 import { prepareProfile, type AcousticProfile, type PreparedProfile } from './profile';
@@ -89,6 +90,7 @@ export class LaunchAudio {
     const assets = await loadAssets(ctx, prep, fetchBytes, BASE, { preferOpus: opusLikelySupported() });
     const fmts = new Set(Object.values(assets.format));
     this.info = { ...this.info, format: [...fmts].join('+'), bytes: assets.bytes, decodedMB: assets.decodedBytes / 1048576, sampleRate: ctx.sampleRate };
+    await loadLimiterWorklet(ctx); // exact look-ahead limiter; falls back to a DynamicsCompressor if unavailable
     this.engine = new AudioEngine(ctx, prep, assets.buffers);
     this.applyVolume(0);
     const app = this.app!;

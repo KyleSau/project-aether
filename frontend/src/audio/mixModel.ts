@@ -64,7 +64,7 @@ export interface MixOut {
 
 export interface OneShotPlan {
   key: string;
-  asset: 'ignition' | 'meco_tail' | 'stage_sep_structural';
+  asset: 'ignition' | 'ignition_overpressure' | 'meco_tail' | 'stage_sep_structural';
   tArrive: number; // sim time at the listener
   eqDb: Float64Array; // static octave EQ (dB)
 }
@@ -101,7 +101,7 @@ export class AcousticMixer {
   private teJet = NaN;
   private cJet = 340;
   private padCache: { key: string; r: number; c: number; Aabs: Float64Array; imp: number } | null = null;
-  private refCache = new Map<string, { LpMax: number; ignEq: Float64Array }>();
+  private refCache = new Map<string, { LpMax: number; ignEq: Float64Array; ignOa: number }>();
   private out: MixOut;
 
   constructor(public prep: PreparedProfile, public veh: VehicleConfig, listener: Listener, k?: number) {
@@ -169,7 +169,7 @@ export class AcousticMixer {
   }
 
   /** mic-gain reference and ignition EQ for the current listener, from a synthetic full-thrust liftoff state */
-  private reference(): { LpMax: number; ignEq: Float64Array } {
+  private reference(): { LpMax: number; ignEq: Float64Array; ignOa: number } {
     const l = this.listener;
     const key = `${l.key}|${l.mode}|${this.k}|${this.lpMaxOverride}`;
     const hit = this.refCache.get(key);
@@ -178,12 +178,14 @@ export class AcousticMixer {
     const st = sourceState(this.prep, this.veh, f)!;
     const L = new Float64Array(NB), Lp = new Float64Array(NB), D = new Float64Array(NB);
     let LpMax: number;
+    let ignOa = 0;
     const ign = new Float64Array(NB);
     if (l.mode === 'ground') {
       this.jetSpl(st, f, l.pos, L, true);
       LpMax = this.lpMaxOverride ?? l.LpMax ?? oaDb(L);
       this.toDigital(L, LpMax, D);
       for (let b = 0; b < NB; b++) ign[b] = D[b] - this.prep.A_jet[b] - 2;
+      ignOa = oaDb(D);
     } else {
       const onboard = l.mode === 'onboard' || l.mode === 'cabin';
       const lis: V3 = onboard ? [0, 0, ONBOARD_FWD] : [l.chaseR ?? 30, 0, 1.7];
@@ -202,8 +204,9 @@ export class AcousticMixer {
       }
       this.toDigital(L, LpMax, D);
       for (let b = 0; b < NB; b++) ign[b] = D[b] - this.prep.A_jet[b] - 2;
+      ignOa = oaDb(D);
     }
-    const r = { LpMax, ignEq: ign };
+    const r = { LpMax, ignEq: ign, ignOa };
     this.refCache.set(key, r);
     return r;
   }
@@ -381,6 +384,14 @@ export class AcousticMixer {
       const eq = Float64Array.from(ref.ignEq);
       if (l.mode === 'cabin') for (let b = 0; b < NB; b++) eq[b] -= tl(b);
       out.push({ key: key('ignition'), asset: 'ignition', tArrive: ev.t + delay, eqDb: eq });
+      // ignition overpressure: separate thump, scalar gain = oa(D_jet at liftoff) + level - asset main RMS (profile level_rule)
+      const iopMeta = p.assets.ignition_overpressure, iop = p.raw.pad_interaction.ignition_overpressure;
+      if (iopMeta && iop && iopMeta.rms_main_dbfs !== undefined) {
+        const g = ref.ignOa + iop.level_db_re_full_thrust_jet - iopMeta.rms_main_dbfs;
+        const eqI = new Float64Array(NB).fill(g);
+        if (l.mode === 'cabin') for (let b = 0; b < NB; b++) eqI[b] -= tl(b);
+        out.push({ key: key('ignition_overpressure'), asset: 'ignition_overpressure', tArrive: ev.t + (iopMeta.offset_s ?? 0) + delay, eqDb: eqI });
+      }
     } else if (ev.name === 'MECO') {
       const f = newFrame();
       if (!this.ring.size || !this.ring.sample(Math.max(ev.t - 0.1, this.ring.t0), f)) return out;

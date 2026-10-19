@@ -194,3 +194,27 @@ def test_anti_repetition_breaks_loop_period(prof):
 
     assert env_corr(rl.read_loop(x, pos)) > 0.95
     assert env_corr(rl.read_loop_ar(x, pos, prof)) < 0.5
+
+
+def test_lookahead_limiter(prof):
+    """Ceiling is never exceeded, gain reduction starts before the peak (look-ahead) and recovers with the release."""
+    lm = prof["level_mapping"]["limiter"]
+    x = 0.05 * np.random.default_rng(1).standard_normal(FS)
+    x[24000] = 4.0  # +12 dBFS spike
+    y, gr = rl.lookahead_limit(x, lm["ceiling_dbfs"], lm["lookahead_ms"], lm["release_ms"], return_gr=True)
+    assert np.abs(y).max() <= 10 ** (lm["ceiling_dbfs"] / 20) + 1e-12
+    L = int(lm["lookahead_ms"] * FS / 1000)
+    assert gr[24000 - L // 2] > 0.4 * gr[24000]          # ramping down ahead of the peak
+    assert gr[24000 - 2 * L] == pytest.approx(0.0, abs=1e-9)  # but not earlier than the look-ahead
+    t_rel = int(lm["release_ms"] * FS / 1000)
+    assert gr[24000 + t_rel] == pytest.approx(gr[24000] * math.exp(-1), rel=0.05)  # exponential release
+    quiet = rl.lookahead_limit(0.3 * np.sin(np.arange(FS) * 0.01), lm["ceiling_dbfs"], lm["lookahead_ms"], lm["release_ms"])
+    assert np.allclose(quiet, 0.3 * np.sin(np.arange(FS) * 0.01))  # below the ceiling: untouched
+
+
+def test_crackle_is_bursty_not_periodic(prof):
+    """Selected shock fronts: rate near the design value, inter-event CV well above a periodic train."""
+    fs, x = wavfile.read(os.path.join(ROOT, "data", "audio", "assets", "crackle.wav"))
+    b = dsp.bang_stats(x.astype(np.float64) / 32768, fs, hp_hz=1000.0, prominence_db=12.0)
+    assert 8.0 < b["rate_per_s"] < 40.0
+    assert b["interval_cv"] > 0.7
