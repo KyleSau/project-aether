@@ -91,3 +91,5 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(-
   .launch { padding: 16px 50px !important; font-size: 22px !important; }
   .banner { top: 104px; font-size: 11px; white-space: normal; text-align: center; width: 92vw; }
 }
+.controls .sound { display: inline-flex; align-items: center; gap: 6px; }
+.controls .sound input[type='range'] { width: 84px; accent-color: #46d2ff; }

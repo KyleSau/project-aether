@@ -2,8 +2,8 @@
 
 This document describes the physically grounded launch-audio core shared by the Aether browser simulator and the
 Misanthropic Unreal game (which runs a C++ port of the same physics). The core covers the research, the measurements,
-the offline synthesis, the physics→audio contract and its validation. It does **not** include the browser or Unreal
-front-ends. Those are built from the outputs listed below.
+the offline synthesis, the physics→audio contract and its validation. The browser front-end is described in section 11; the Unreal
+front-end is built separately from the outputs listed below.
 
 Every number carries one of four labels, in Aether's usual spirit:
 
@@ -30,6 +30,7 @@ numbers are the published ones quoted below.
 | `data/audio/validation/comparison_pairs.json` | Render-vs-real pairs used in the figures |
 | `data/audio/validation/telemetry_reference.csv` | Reference-sim telemetry in the renderer's CSV format: a ground truth for runtime checks |
 | `docs/audio/launch_*.ogg` | Validation renders to listen to: pad 405 m, 5 km, 20 km, onboard, cabin |
+| `data/audio/validation/browser_runtime_comparison.json` | Browser runtime vs Python renders (section 11.5) |
 | `tools/audio/` | Analysis (`dsp.py`, `references.py`), model (`acoustic_model.py`, `make_profile.py`), synthesis (`synth_layers.py`), reference renderer (`render_launch.py`), validation (`validate.py`), tests, `build_all.py` |
 
 **Regenerate everything** with `python tools/audio/build_all.py`. Use `--offline` to reuse the committed reference
@@ -294,3 +295,162 @@ the user. They are replaced by these assets plus the profile.
 - The pad term (level, weight height, trench position), the onboard levels and the cabin surface mass are ROM or artistic.
 - The reference recordings are broadcast MP3s with unknown mic positions, unknown frequency responses, clipping and gating. Everything measured on them is relative.
 - Falcon 9-specific numbers are applied to Aether's generic AETHER-M2 vehicle. They match only to the extent that the vehicle is Falcon 9-class (9 × LOX/RP-1, 7.5 MN).
+
+## 11. Browser runtime (`frontend/src/audio/`)
+
+The browser engine implements this model live from the simulator's telemetry. It replaces the old
+`frontend/src/engine/Audio.ts` (a filtered-noise stand-in), which is deleted.
+
+### 11.1 Architecture
+
+| File | Role |
+|---|---|
+| `profile.ts` | Typed view of `acoustic_profile.json`; octave-band tables (`A_jet` = rumble_lf ⊕ jet_mix, `A_pad`, pad shape, asset overall levels, directivity and spectrum tables) |
+| `acoustics.ts` | Port of `acoustic_model.py` in octave bands: source state (W, U, D_spec via the TS plume ROM, x_t, crackle source weight), SP-8072 band power, directivity, ISO 9613-1 along a 24-point ray with the humidity profile, `c_path`, ground gain, ρc at the listener (−∞ below 1 Pa), and the pad, onboard, aero and cabin-TL laws |
+| `telemetryRing.ts` | `TelemetryRing`: 8192 frames in column storage (819 s of the sim's 0.1 s history; MECO reaches the Pad camera 441 s late). `solveEmissionTime`: Newton form of the fixed point `t_e = t − r(t_e)/c` (3 steps from the previous t_e, bisection fallback). The plain fixed point diverges once the radial speed exceeds c (about T+60 s at 5 km). `c_path` is iterated to self-consistency, so a seek gives the same t_e as continuous play |
+| `simFeed.ts` | Telemetry adapter: `MissionSim.history` frames (deterministic; also what replay plays) → `Telemetry` via `evaluate()` → nozzle exit (stage 2: body x = `geometry.stage2.x0` = 45 m) and exhaust axis in pad-local ENU, the frame of `render_launch.py` |
+| `listeners.ts` | Camera → listener preset, taken from `listeners.aether` |
+| `mixModel.ts` | `AcousticMixer` (pure, no Web Audio). For each control tick it gives the per-group octave EQ targets `EQ_dB = D − A_group`, the read rate and read position (emission time) per sync group, the onboard levels, the warp policy and the one-shot plans. Also holds `OneShotScheduler` |
+| `eqDesign.ts` | Realises an octave target with Web Audio nodes: a gain, 10 high-shelf biquads (S = 1) at the octave mid-points, and a 4th-order Butterworth low-pass (two biquads). Solved with the exact Web Audio biquad formulas: a linear solve on the dB sensitivity matrix, then 5 fixed-Jacobian Newton passes |
+| `AudioEngine.ts` | The Web Audio graph on any `BaseAudioContext` (live or offline) |
+| `assets.ts` | Opus first, WAV fallback, trim to the exact length, half-rate storage of rumble_lf and onboard_structure |
+| `LaunchAudio.ts` | Browser driver: unlock on the first gesture, a 30 Hz `setInterval` tick (outside the three.js loop), suspend on pause or hidden tab, discontinuity handling (seek, restart), volume and mute kept in `localStorage` |
+
+Graph (one EQ chain per group; two anti-repetition voices per layer):
+
+```
+rumble_lf A/B ─ xfade ─ layer gain ┐
+jet_mix   A/B ─ xfade ─ layer gain ┴─ jet EQ ─────┐
+crackle   A/B ─ xfade ─ layer gain ── crackle EQ ─┼─ airborne (warp gain) ─┐
+pad_int.  A/B ─ xfade ─ layer gain ── pad EQ ─────┘                        │
+onboard_structure A/B ─ xfade ─ level ─────────────────────────────────────┼─ mix ─ ¼ ─ WaveShaper (soft limit) ─ master ─ out
+aero_buffet       A/B ─ xfade ─ level ─────────────────────────────────────┤
+one-shots ─ own static EQ chain ─ airborne (ignition, MECO tail) or mix (structural)
+```
+
+The graph holds 50 nodes when idle (3 EQ chains of 13 nodes, the buses and 6 layer gains) and 81 at liftoff
+(8 loop voices plus the ignition one-shot). A layer creates its voices only while it is audible and releases
+them 1.2 s after its output falls below −110 dBFS. One-shot chains are disconnected on `ended`. After a
+restart the count returns to the idle 50 (checked in Chrome).
+
+### 11.2 Mappings as implemented
+
+- **Telemetry**: `thrust`, `mdot`, `throttle`, `P`, `T`, `rho`, `a`, `h`, `mach`, `qbar` and `phase` come from
+  `evaluate()` on each history frame. Events come from `MissionSim.events`, keeping only those with `t ≤` the
+  displayed time, so replay never plays the future. Listener positions: Pad, Tracker and Aerial use the profile's
+  `pos_enu`. Free maps the camera's render position to ENU as (x, −z, y − GROUND_Y).
+- **Delay and Doppler**: the jet group is read at `t_e`. Its `playbackRate` is `1/(1 + (dr/dt_e)/c)`, the
+  analytic read rate of the delay line, clamped to [0.5, 1.5] as the profile says. Nothing else changes pitch.
+  The pad layer is a static source at the trench exit (0, 60, 1) m, with its own constant delay and rate 1.
+- **Loop positions**: every voice starts at `(τ − τ0) mod 24 s` (the second voice adds 0.618·24 s), as in
+  `read_loop_ar`. Here τ is the group's emission time and τ0 the first history sample; the cross-fade phase φ
+  uses the same τ. A replay or a seek therefore reproduces the same textures. On a discontinuity the voices
+  restart at the new positions with a 20 ms cross-fade.
+- **Levels**: `D = Lp − Lp_OA − 18 + k(Lp_OA − Lp_max)` with `k = k_default = 1`. Pad, Tracker and Aerial take
+  `Lp_max` from their presets (150, 135 and 135 dB). Onboard and chase have no preset, so they use the model at a
+  synthetic full-thrust liftoff state: 145.69 dB onboard (the Python render gives 145.71 dB), and r = 30 m,
+  θ = 100° for Engines. Chase (Engines, Free) is capped at that maximum.
+- **Groups off**: a group whose loudest output band is below −110 dBFS is reported off, and its voices stop.
+- **EQ conditioning**: an output band more than 50 dB below the loudest output band of its group is treated as
+  "don't care". Its target may be raised to keep the fall at 24 dB/oct or less, and it is down-weighted in the
+  fit. The low-pass corner is a continuous function of the target: the point where the target's local slope
+  first passes −18 dB/oct. The filter structure therefore never switches between ticks. An early version did
+  switch, and that made 1500σ clicks.
+- **Parameter smoothing**: group gains use `setTargetAtTime` with τ = 50 ms; cross-fade gains and playback
+  rate use τ = 100 ms. Biquad gains and frequencies are stepped with `setValueAtTime` once per tick, because
+  automated biquad parameters make Chrome recompute coefficients for every sample. On a camera switch the mix
+  dips (12 ms), the new listener's EQ, voices and one-shots are set underneath, and the mix returns 70 ms later.
+- **One-shots**: planned per (event, listener):
+  - Ignition at `IGNITION + r_pad/c` (ground) with the liftoff jet EQ − 2 dB.
+  - MECO tail at `MECO + r(t_MECO − 0.1 s)/c` with the jet EQ just before MECO.
+  - Onboard: the external tail × w_air (dropped when inaudible) plus the structural tail (ref − 6 dB − 0.3·TL).
+  - The stage-separation clunk plays onboard only.
+
+  They are scheduled in audio time at `now + (t_arrive − t_sim)/warp` with a 0.12 s look-ahead. A one-shot seen
+  one tick late (≤ 0.15 s) starts from its beginning. One joined later (after a seek or a camera switch) starts
+  part-way, with a 6 ms fade-in.
+- **Time warp** (`warpPolicy`):
+  - Up to 1×: normal. Delays run in sim time and playback stays at real-time rate.
+  - 2×: airborne −3 dB, and one-shots do not overlap.
+  - Above 4× (5, 10, 50): airborne reaches −24 dB in about 1 s. Only rumble_lf and onboard_structure play,
+    there are no one-shots, and the read rate is 1 (no Doppler at time-lapse rates).
+- **Pause or hidden tab**: the master fades out in 12 ms, then `AudioContext.suspend()` runs; resuming
+  reverses it. Restart stops and disconnects every voice and one-shot and clears the history and the plans.
+- **Cameras**:
+  - Pad, Tracker and Aerial are ground listeners: full delay, Doppler, absorption and ground gain (Aerial uses
+    the elevated rule).
+  - Engines is a chase listener: r = 30 m, θ = 100°, no delay, fading with w_air.
+  - Free is a chase listener at the actual geometry.
+  - Onboard hears structure, aero and the w_air plume; the external sound is killed in vacuum.
+  - Orbital is a vacuum listener and is silent.
+- **Not implemented in the browser**: the cabin aero spectral tilt. Aether has no cabin camera; the cabin mode
+  exists in the model for the jet and pad transmission loss only.
+
+### 11.3 Browser realities
+
+- The `AudioContext` is created on the first `pointerdown`, `keydown` or `touchend` (the LAUNCH click counts),
+  at 48 kHz with `latencyHint: 'playback'`, falling back to the default rate. The profile JSON is fetched at
+  boot and the assets after unlock.
+- Opus is used when `canPlayType('audio/ogg; codecs="opus"')` is non-empty and `decodeAudioData` succeeds.
+  Otherwise that asset falls back to its WAV (Safari < 17). Decoded buffers are trimmed to the manifest length,
+  rescaled to the context rate. Network: 1.9 MB with Opus, 14.2 MB with the WAV fallback.
+- Memory: 24.1 MB of decoded float32 PCM plus a 1.2 MB ring buffer. rumble_lf and onboard_structure are stored
+  at 24 kHz. aero_buffet is not halved, because it carries real energy at 8-16 kHz.
+- Static hosting: `npm run sync-data` copies `data/audio/acoustic_profile.json` and `data/audio/assets/*` to
+  `public/data/audio/`. The build uses relative URLs (`base: './'`). This was checked under a `/site/` sub-path:
+  every asset returned 200 and there were no console errors. `post-site.mjs` accepts `.ogg` and `.wav` and
+  budgets the WAV fallback separately (≤ 20 MB).
+- The bottom bar has a master volume slider and a Sound/mute button.
+
+### 11.4 Performance
+
+| | Value |
+|---|---|
+| Control tick (model + 3 EQ designs + node updates), desktop Chrome | 0.24-0.36 ms at 30 Hz (about 1 % of a core) |
+| Same, offline run (node) | mean 0.08 ms onboard and 0.29 ms ground; max 2.7 ms |
+| EQ design | about 10 µs for a flat target, about 120 µs with a low-pass corner |
+| Audio graph | 3 EQ chains × 12 biquads, up to 12 loop voices; the offline render runs at 43-87× real time |
+
+### 11.5 Validation against the Python reference
+
+`npm run audio:offline` renders the real graph (`AudioEngine` + `AcousticMixer`) on an `OfflineAudioContext`.
+It uses node-web-audio-api (an implementation of the Web Audio spec), drives the graph from
+`data/audio/validation/telemetry_reference.csv` with 30 Hz ticks, and applies the same mic gain as the Python
+render. `python tools/audio/compare_browser.py` then compares the result with
+`tools/audio/_cache/renders/launch_*.wav` using `dsp.py`. Results are in
+`data/audio/validation/browser_runtime_comparison.json`:
+
+| Render | Envelope diff (1 s, >20 Hz): mean / median abs / p95 | Octave bands per window, mean abs diff | Onset |
+|---|---|---|---|
+| Pad 405 m | −0.21 / 0.27 / 1.67 dB (r = 0.999) | 0.40-0.79 dB (max 2.6 dB, at 250 Hz during the crackle peak) | −1.50 s in both |
+| 5 km NW | +0.11 / 1.43 / 5.05 dB (r = 0.977) | 0.36-0.45 dB up to T+150 s; 1.7 dB in the late tail | 11.50 s in both |
+| Onboard | +0.05 / 0.05 / 0.13 dB (r = 1.000) | 0.06-0.61 dB | −2.50 s in both |
+
+- Ignition arrival matches Python to within 2 ms at 405 m, 5 km and 20 km. MECO-tail arrival matches to within
+  0.3 s on a 441 s delay.
+- Crackle dSk per window is 80-85 % of the Python value (15.8 vs 18.6 at the pad, 13.5 vs 16.3 at 5 km). The
+  octave EQ cannot reproduce the 1/3-octave detail of the crackle undo-absorption.
+- Unit tests (`tests/audio.test.ts`, 27 tests) check the following:
+  - the band SPL against `tools/audio/export_runtime_fixture.py`: within 0.02 dB in every octave band, over
+    35 state × listener cases;
+  - delays (within 0.1 ms) and the reception → emission map;
+  - the ISO table, spreading and the near-field limit, and absorption vs distance;
+  - the vacuum mute and the onboard rules;
+  - event delays and one-shot scheduling;
+  - the warp policy, the EQ fit and seek determinism.
+
+### 11.6 Limits
+
+- **Infrasound**: late in flight, the whole-band RMS at the ground listeners is 4-6 dB lower than Python's, and
+  all of the difference lies below 20 Hz. The runtime's octave grid is flat below the 16 Hz band, while Python's
+  1/3-octave grid extends to 6.3 Hz, and at high Doppler the rumble is shifted into that range. Above 20 Hz the
+  windows agree within 0.4 dB.
+- **Read-rate clamp**: the profile clamps the read rate to [0.5, 1.5]; `render_launch.py` does not. After about
+  T+80 s the vehicle recedes faster than sound, and Python pitch-shifts by up to 1/7. A diagnostic render with
+  the clamp relaxed (`obs5km_noclamp`) cuts the octave difference in the late 5 km window from 1.74 to 0.59 dB.
+- The runtime uses octave resolution (11 bands), not 1/3 octave. Extreme absorption cliffs are fitted where they
+  are audible (within 50 dB of the loudest band) and only bounded below that.
+- For the attached cameras (onboard, chase), the parameters use history frames up to 0.1 s old.
+- The profile's limiter has attack and release times; the runtime uses the reference renderer's static soft
+  clip instead.
+- Mobile CPU has not been measured on a real device. The per-tick cost and node count above are the budget.

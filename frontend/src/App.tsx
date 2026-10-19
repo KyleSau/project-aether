@@ -159,7 +159,7 @@ export function App() {
         </div>
         <div className="row small">
           <button className={eng ? 'on' : ''} onClick={() => { if (!engine) return; engine.engineering = !engine.engineering; setEng(engine.engineering); }}>Engineering</button>
-          <button className={engine?.audio.muted ? '' : 'on'} onClick={() => { if (engine) engine.audio.muted = !engine.audio.muted; }}>{engine?.audio.muted ? 'Sound off' : 'Sound'}</button>
+          <SoundControls engine={engine} />
           {(['day', 'dawn', 'night'] as TimeOfDay[]).map((t) => (
             <button key={t} className={tod === t ? 'on' : ''} onClick={() => { engine?.setTimeOfDay(t); setTod(t); }}>{t}</button>
           ))}
@@ -183,6 +183,20 @@ export function App() {
   );
 }
 
+function SoundControls({ engine }: { engine: Engine | null }) {
+  const a = engine?.audio;
+  if (!a) return null;
+  const st = a.status;
+  const label = st === 'locked' ? 'Sound (tap to enable)' : st === 'loading' ? 'Sound…' : st === 'error' || st === 'unsupported' ? 'No sound' : a.muted ? 'Sound off' : 'Sound';
+  return (
+    <span className="sound">
+      <button className={!a.muted && st === 'ready' ? 'on' : ''} title={a.info.error ?? `launch acoustics ${a.info.format}`}
+        onClick={() => { a.unlock(); if (st === 'ready' || st === 'loading') a.setMuted(!a.muted); }}>{label}</button>
+      <input type="range" min={0} max={1} step={0.01} value={a.volume} aria-label="Volume"
+        onChange={(e) => { a.unlock(); a.setVolume(parseFloat(e.target.value)); }} />
+    </span>
+  );
+}
 function Item({ k, v }: { k: string; v: string }) {
   return <div className="item"><span className="k">{k}</span><span className="v">{v}</span></div>;
 }

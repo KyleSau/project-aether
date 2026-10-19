@@ -17,7 +17,7 @@ import { SkyModel, R_GROUND_KM } from './scene/Sky';
 import { Effects } from './Effects';
 import { Clouds } from './scene/Clouds';
 import { Condensation } from './scene/Condensation';
-import { LaunchAudio } from './Audio';
+import { LaunchAudio } from '../audio/LaunchAudio';
 import { AnalyticParticles, ComputeParticles } from './scene/Particles';
 import { AutoScaler, detectTier, makeSettings, type QualitySettings } from './quality';
 import type { Stepper } from '../physics/sim';
@@ -62,7 +62,8 @@ export class Engine {
   bloomNode: ReturnType<typeof bloom> | null = null;
   exposure = uniform(1);
   private placed: Placed[] = [];
-  private camWorld: V3 = [0, 0, 0];
+  /** camera position, render world (float64); read by the audio listener */
+  camWorld: V3 = [0, 0, 0];
   private last = performance.now();
   private fpsAcc = 0;
   private fpsN = 0;
@@ -193,6 +194,7 @@ export class Engine {
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.installControls();
+    this.audio.attach(this);
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
@@ -274,7 +276,7 @@ export class Engine {
   }
 
   launch() {
-    this.audio.start();
+    this.audio.unlock();
     this.mission.launch();
   }
 
@@ -285,6 +287,7 @@ export class Engine {
 
   restart() {
     this.mission.reset();
+    this.audio.reset();
     this.fx.reset();
     this.trajCount = 0;
     this.lastSepCount = 0;
@@ -391,7 +394,6 @@ export class Engine {
     this.pad.update(dtReal * (M.paused ? 0 : M.warp), M.state !== 'idle');
     this.vapor.update(tel.mach, tel.h, tel.qbar);
     this.vapor.mesh.visible = this.vapor.mesh.visible && v.phase <= S2_BURN;
-    this.audio.update(this.fx.acoustic, this.fx.nearField, M.paused);
 
     // camera
     const out = this.rig.update({
